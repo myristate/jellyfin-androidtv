@@ -36,6 +36,7 @@ import org.jellyfin.androidtv.util.sdk.forUser
 import org.jellyfin.sdk.Jellyfin
 import org.jellyfin.sdk.api.client.ApiClient
 import org.jellyfin.sdk.api.client.exception.ApiClientException
+import org.jellyfin.sdk.api.client.exception.InvalidStatusException
 import org.jellyfin.sdk.api.client.exception.TimeoutException
 import org.jellyfin.sdk.api.client.extensions.authenticateUserByName
 import org.jellyfin.sdk.api.client.extensions.authenticateWithQuickConnect
@@ -45,6 +46,7 @@ import org.jellyfin.sdk.model.api.AuthenticationResult
 import org.jellyfin.sdk.model.api.ImageType
 import org.jellyfin.sdk.model.api.UserDto
 import timber.log.Timber
+import java.net.HttpURLConnection
 import java.time.Instant
 import java.util.UUID
 
@@ -124,6 +126,12 @@ class AuthenticationRepositoryImpl(
 		} catch (err: TimeoutException) {
 			Timber.e(err, "Failed to connect to server trying to sign in $username")
 			emit(ServerUnavailableState)
+			return@flow
+		} catch (err: InvalidStatusException) {
+			Timber.e(err, "Unable to sign in as $username")
+			// The server rejected the username or password, don't report it as a connection problem
+			if (err.status == HttpURLConnection.HTTP_UNAUTHORIZED) emit(RequireSignInState)
+			else emit(ApiClientErrorLoginState(err))
 			return@flow
 		} catch (err: ApiClientException) {
 			Timber.e(err, "Unable to sign in as $username")
