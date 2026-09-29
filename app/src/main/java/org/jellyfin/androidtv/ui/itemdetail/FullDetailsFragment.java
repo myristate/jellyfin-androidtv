@@ -1013,6 +1013,15 @@ public class FullDetailsFragment extends Fragment implements RecordingIndicatorV
             });
             mDetailsOverviewRow.addAction(kidsButton);
             FullDetailsFragmentHelperKt.loadKidsTag(FullDetailsFragment.this);
+        } else if (FullDetailsFragmentHelperKt.canRemoveFromKids(FullDetailsFragment.this)) {
+            // Kids' profiles can only take a film away from the kids, a parent adds it back
+            kidsButton = TextUnderButton.create(requireContext(), R.drawable.ic_users, buttonSize, 0, getString(R.string.kids_tag_remove), new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    FullDetailsFragmentHelperKt.confirmRemoveFromKids(FullDetailsFragment.this);
+                }
+            });
+            mDetailsOverviewRow.addAction(kidsButton);
         }
 
         boolean deletableItem = false;
@@ -1143,7 +1152,7 @@ public class FullDetailsFragment extends Fragment implements RecordingIndicatorV
         if (shuffleButton != null) actionsList.add(shuffleButton);
         if (favButton != null) actionsList.add(favButton);
         if (goToSeriesButton != null) actionsList.add(goToSeriesButton);
-        if (kidsButton != null) actionsList.add(kidsButton);
+        // The kids button is never collapsed into the more menu so parents can always find it
 
         // reverse the list so the less important actions are hidden first
         Collections.reverse(actionsList);

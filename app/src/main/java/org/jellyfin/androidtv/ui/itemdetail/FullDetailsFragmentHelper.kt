@@ -3,6 +3,7 @@ package org.jellyfin.androidtv.ui.itemdetail
 import android.content.ActivityNotFoundException
 import android.view.View
 import android.widget.Toast
+import android.app.AlertDialog
 import androidx.core.view.isVisible
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
@@ -101,14 +102,6 @@ fun FullDetailsFragment.showDetailsMenu(
 		item(getString(R.string.lbl_goto_series)) { gotoSeries() }
 	}
 
-	if (kidsButton?.isVisible == false) {
-		val kidsStringRes = when (kidsButton.isActivated) {
-			true -> R.string.kids_tag_remove
-			false -> R.string.kids_tag_add
-		}
-
-		item(getString(kidsStringRes)) { toggleKidsTag() }
-	}
 }.showIfNotEmpty()
 
 private val kidsTaggableTypes = setOf(
@@ -127,6 +120,55 @@ fun FullDetailsFragment.canTagForKids(): Boolean {
 	val isAdministrator = userRepository.currentUser.value?.policy?.isAdministrator == true
 
 	return isAdministrator && mBaseItem.type in kidsTaggableTypes
+}
+
+/**
+ * A kid's profile, limited to the kids tag on the server, may only take items away from the kids, never add them.
+ */
+fun FullDetailsFragment.canRemoveFromKids(): Boolean {
+	val userRepository by inject<UserRepository>()
+	val policy = userRepository.currentUser.value?.policy ?: return false
+	val limitedToKids = policy.allowedTags.orEmpty().any { it.equals(ItemMutationRepository.KIDS_TAG, ignoreCase = true) }
+
+	return !policy.isAdministrator && limitedToKids && mBaseItem.type in kidsTaggableTypes
+}
+
+fun FullDetailsFragment.confirmRemoveFromKids() {
+	val item = mBaseItem
+
+	AlertDialog.Builder(requireContext())
+		.setTitle(R.string.kids_remove_title)
+		.setMessage(getString(R.string.kids_remove_message, item.name))
+		.setPositiveButton(R.string.kids_tag_remove) { _, _ -> removeFromKids(item) }
+		.setNegativeButton(R.string.btn_cancel, null)
+		.show()
+}
+
+private fun FullDetailsFragment.removeFromKids(item: BaseItemDto) {
+	val itemMutationRepository by inject<ItemMutationRepository>()
+	val navigationRepository by inject<NavigationRepository>()
+	val dataRefreshService by inject<DataRefreshService>()
+
+	lifecycleScope.launch {
+		val removed = try {
+			itemMutationRepository.removeTagAsAdministrator(item.id, ItemMutationRepository.KIDS_TAG)
+		} catch (error: ApiClientException) {
+			Timber.e(error, "Failed to remove ${item.id} from kids")
+			Toast.makeText(context, getString(R.string.kids_tag_failed, item.name), Toast.LENGTH_LONG).show()
+			return@launch
+		}
+
+		if (!removed) {
+			Toast.makeText(context, R.string.kids_remove_no_admin, Toast.LENGTH_LONG).show()
+			return@launch
+		}
+
+		Toast.makeText(context, getString(R.string.kids_tag_removed, item.name, ItemMutationRepository.KIDS_TAG), Toast.LENGTH_LONG).show()
+		// The item is no longer visible to this profile, refresh the lists that show it and leave its page
+		dataRefreshService.lastDeletedItemId = item.id
+		if (navigationRepository.canGoBack) navigationRepository.goBack()
+		else navigationRepository.navigate(Destinations.home)
+	}
 }
 
 fun FullDetailsFragment.loadKidsTag() {
