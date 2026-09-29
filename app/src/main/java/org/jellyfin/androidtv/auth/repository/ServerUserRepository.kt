@@ -20,7 +20,11 @@ import timber.log.Timber
 interface ServerUserRepository {
 	//server
 	fun getStoredServerUsers(server: Server): List<PrivateUser>
-	suspend fun getPublicServerUsers(server: Server): List<PublicUser>
+
+	/**
+	 * @return the users shown on the server's login screen, or null when the server could not be reached.
+	 */
+	suspend fun getPublicServerUsers(server: Server): List<PublicUser>?
 
 	fun deleteStoredUser(user: PrivateUser)
 }
@@ -39,12 +43,13 @@ class ServerUserRepositoryImpl(
 				accessToken = authInfo?.accessToken,
 				imageTag = userInfo.imageTag,
 				lastUsed = userInfo.lastUsed,
+				hasPin = userInfo.pinHash != null,
 			)
 		}
 		?.sortedWith(compareByDescending<PrivateUser> { it.lastUsed }.thenBy { it.name })
 		.orEmpty()
 
-	override suspend fun getPublicServerUsers(server: Server): List<PublicUser> {
+	override suspend fun getPublicServerUsers(server: Server): List<PublicUser>? {
 		// Create a fresh API because the shared one might be authenticated for a different server
 		val api = jellyfin.createApi(server.address)
 
@@ -56,7 +61,7 @@ class ServerUserRepositoryImpl(
 		} catch (err: ApiClientException) {
 			Timber.e(err, "Unable to retrieve public users")
 
-			emptyList()
+			null
 		}
 	}
 

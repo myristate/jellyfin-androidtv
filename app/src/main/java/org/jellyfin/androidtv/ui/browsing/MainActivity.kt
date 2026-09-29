@@ -81,6 +81,8 @@ class MainActivity : FragmentActivity() {
 	override fun onResume() {
 		super.onResume()
 
+		// Returning after a while to a PIN protected profile asks for the PIN again
+		sessionRepository.lockIfNeeded()
 		if (!validateAuthentication()) return
 
 		applyTheme()
@@ -109,6 +111,7 @@ class MainActivity : FragmentActivity() {
 		super.onStop()
 
 		workManager.enqueue(OneTimeWorkRequestBuilder<LeanbackChannelWorker>().build())
+		sessionRepository.onBackgrounded()
 
 		lifecycleScope.launch(Dispatchers.IO) {
 			Timber.i("MainActivity stopped")

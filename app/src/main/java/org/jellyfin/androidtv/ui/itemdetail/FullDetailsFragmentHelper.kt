@@ -9,6 +9,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.jellyfin.androidtv.R
+import org.jellyfin.androidtv.auth.repository.UserRepository
 import org.jellyfin.androidtv.data.model.DataRefreshService
 import org.jellyfin.androidtv.data.repository.ItemMutationRepository
 import org.jellyfin.androidtv.data.repository.ItemRepository
@@ -99,7 +100,66 @@ fun FullDetailsFragment.showDetailsMenu(
 	if (goToSeriesButton?.isVisible == false) {
 		item(getString(R.string.lbl_goto_series)) { gotoSeries() }
 	}
+
+	if (kidsButton?.isVisible == false) {
+		val kidsStringRes = when (kidsButton.isActivated) {
+			true -> R.string.kids_tag_remove
+			false -> R.string.kids_tag_add
+		}
+
+		item(getString(kidsStringRes)) { toggleKidsTag() }
+	}
 }.showIfNotEmpty()
+
+private val kidsTaggableTypes = setOf(
+	BaseItemKind.MOVIE,
+	BaseItemKind.SERIES,
+	BaseItemKind.VIDEO,
+	BaseItemKind.MUSIC_VIDEO,
+)
+
+/**
+ * Tags on a series also apply to its seasons and episodes. Tags on other containers like seasons or collections don't
+ * make the series or movies in them visible to a kid's user, so only offer the toggle where it works.
+ */
+fun FullDetailsFragment.canTagForKids(): Boolean {
+	val userRepository by inject<UserRepository>()
+	val isAdministrator = userRepository.currentUser.value?.policy?.isAdministrator == true
+
+	return isAdministrator && mBaseItem.type in kidsTaggableTypes
+}
+
+fun FullDetailsFragment.loadKidsTag() {
+	val itemMutationRepository by inject<ItemMutationRepository>()
+	val itemId = mBaseItem.id
+
+	lifecycleScope.launch {
+		try {
+			kidsButton?.isActivated = itemMutationRepository.hasTag(itemId, ItemMutationRepository.KIDS_TAG)
+		} catch (error: ApiClientException) {
+			Timber.w(error, "Failed to get tags of item $itemId")
+		}
+	}
+}
+
+fun FullDetailsFragment.toggleKidsTag() {
+	val itemMutationRepository by inject<ItemMutationRepository>()
+	val item = mBaseItem
+	val tagged = kidsButton?.isActivated != true
+
+	lifecycleScope.launch {
+		try {
+			itemMutationRepository.setTag(item.id, ItemMutationRepository.KIDS_TAG, tagged)
+			kidsButton?.isActivated = tagged
+
+			val message = if (tagged) R.string.kids_tag_added else R.string.kids_tag_removed
+			Toast.makeText(context, getString(message, item.name, ItemMutationRepository.KIDS_TAG), Toast.LENGTH_LONG).show()
+		} catch (error: ApiClientException) {
+			Timber.e(error, "Failed to change tags of item ${item.id}")
+			Toast.makeText(context, getString(R.string.kids_tag_failed, item.name), Toast.LENGTH_LONG).show()
+		}
+	}
+}
 
 fun FullDetailsFragment.createFakeSeriesTimerBaseItemDto(timer: SeriesTimerInfoDto) = BaseItemDto(
 	id = requireNotNull(timer.id).toUUID(),

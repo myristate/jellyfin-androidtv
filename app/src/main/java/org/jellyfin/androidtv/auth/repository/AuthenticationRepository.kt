@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
+import org.jellyfin.androidtv.auth.ProfilePin
 import org.jellyfin.androidtv.auth.model.ApiClientErrorLoginState
 import org.jellyfin.androidtv.auth.model.AuthenticateMethod
 import org.jellyfin.androidtv.auth.model.AuthenticatedState
@@ -13,9 +14,13 @@ import org.jellyfin.androidtv.auth.model.AuthenticatingState
 import org.jellyfin.androidtv.auth.model.AuthenticationStoreUser
 import org.jellyfin.androidtv.auth.model.AutomaticAuthenticateMethod
 import org.jellyfin.androidtv.auth.model.CredentialAuthenticateMethod
+import org.jellyfin.androidtv.auth.model.InvalidPinState
 import org.jellyfin.androidtv.auth.model.LoginState
+import org.jellyfin.androidtv.auth.model.PinAuthenticateMethod
 import org.jellyfin.androidtv.auth.model.PrivateUser
+import org.jellyfin.androidtv.auth.model.PublicUser
 import org.jellyfin.androidtv.auth.model.QuickConnectAuthenticateMethod
+import org.jellyfin.androidtv.auth.model.RequirePinState
 import org.jellyfin.androidtv.auth.model.RequireSignInState
 import org.jellyfin.androidtv.auth.model.Server
 import org.jellyfin.androidtv.auth.model.ServerUnavailableState
@@ -41,6 +46,7 @@ import org.jellyfin.sdk.model.api.ImageType
 import org.jellyfin.sdk.model.api.UserDto
 import timber.log.Timber
 import java.time.Instant
+import java.util.UUID
 
 /**
  * Repository to manage authentication of the user in the app.
@@ -49,6 +55,13 @@ interface AuthenticationRepository {
 	fun authenticate(server: Server, method: AuthenticateMethod): Flow<LoginState>
 	fun logout(user: User): Boolean
 	fun getUserImageUrl(server: Server, user: User): String?
+
+	fun hasPin(serverId: UUID, userId: UUID): Boolean
+
+	/**
+	 * Set the PIN that protects a stored user on this device, or remove it with a null [pin].
+	 */
+	fun setPin(serverId: UUID, userId: UUID, pin: String?): Boolean
 }
 
 class AuthenticationRepositoryImpl(
@@ -62,6 +75,7 @@ class AuthenticationRepositoryImpl(
 	override fun authenticate(server: Server, method: AuthenticateMethod): Flow<LoginState> {
 		return when (method) {
 			is AutomaticAuthenticateMethod -> authenticateAutomatic(server, method.user)
+			is PinAuthenticateMethod -> authenticatePin(server, method.user, method.pin)
 			is CredentialAuthenticateMethod -> authenticateCredential(server, method.username, method.password)
 			is QuickConnectAuthenticateMethod -> authenticateQuickConnect(server, method.secret)
 		}
@@ -74,10 +88,32 @@ class AuthenticationRepositoryImpl(
 		if (authenticationPreferences[AuthenticationPreferences.alwaysAuthenticate]) return flowOf(RequireSignInState)
 
 		val authStoreUser = authenticationStore.getUser(server.id, user.id)
-		// Try login with access token
-		return if (authStoreUser?.accessToken != null) authenticateToken(server, user.withToken(authStoreUser.accessToken))
-		// Require login
-		else flowOf(RequireSignInState)
+		return when {
+			// Ask for the PIN before using the stored access token
+			authStoreUser?.accessToken != null && authStoreUser.pinHash != null -> flowOf(RequirePinState)
+			// Try login with access token
+			authStoreUser?.accessToken != null -> authenticateToken(server, user.withToken(authStoreUser.accessToken))
+			// A user without a password can sign in straight away
+			user is PublicUser && !user.hasPassword -> authenticateCredential(server, user.name, "")
+			// Require login
+			else -> flowOf(RequireSignInState)
+		}
+	}
+
+	private fun authenticatePin(server: Server, user: User, pin: String): Flow<LoginState> {
+		val authStoreUser = authenticationStore.getUser(server.id, user.id)
+		val pinHash = authStoreUser?.pinHash
+		val accessToken = authStoreUser?.accessToken
+
+		return when {
+			accessToken == null -> flowOf(RequireSignInState)
+			pinHash != null && !ProfilePin.verify(pin, pinHash) -> {
+				Timber.w("Wrong PIN entered for user ${user.id}")
+				flowOf(InvalidPinState)
+			}
+
+			else -> authenticateToken(server, user.withToken(accessToken))
+		}
 	}
 
 	private fun authenticateCredential(server: Server, username: String, password: String) = flow {
@@ -129,23 +165,21 @@ class AuthenticationRepositoryImpl(
 		)
 
 		authenticateFinish(server, userInfo, accessToken)
-		val success = setActiveSession(user, server)
-		if (success) {
+		val result = setActiveSession(user, server)
+		if (result == SessionSwitchResult.SWITCHED) {
 			emit(AuthenticatedState)
 		} else {
 			Timber.w("Failed to set active session after authenticating")
-			if (!server.versionSupported) emit(ServerVersionNotSupported(server))
-			else emit(RequireSignInState)
+			emit(result.toFailedLoginState(server))
 		}
 	}.flowOn(Dispatchers.IO)
 
 	private fun authenticateToken(server: Server, user: User) = flow {
 		emit(AuthenticatingState)
 
-		val success = setActiveSession(user, server)
-		if (!success) {
-			if (!server.versionSupported) emit(ServerVersionNotSupported(server))
-			else emit(RequireSignInState)
+		val result = setActiveSession(user, server)
+		if (result != SessionSwitchResult.SWITCHED) {
+			emit(result.toFailedLoginState(server))
 		} else try {
 			// Update user info
 			val userInfo by userApiClient.userApi.getCurrentUser()
@@ -177,10 +211,17 @@ class AuthenticationRepositoryImpl(
 		authenticationStore.putUser(server.id, userInfo.id, updatedUser)
 	}
 
-	private suspend fun setActiveSession(user: User, server: Server): Boolean {
-		val authenticated = sessionRepository.switchCurrentSession(server.id, user.id)
+	private fun SessionSwitchResult.toFailedLoginState(server: Server) = when {
+		!server.versionSupported -> ServerVersionNotSupported(server)
+		// Don't ask to sign in again when the stored access token could still be valid
+		this == SessionSwitchResult.SERVER_UNAVAILABLE -> ServerUnavailableState
+		else -> RequireSignInState
+	}
 
-		if (authenticated) {
+	private suspend fun setActiveSession(user: User, server: Server): SessionSwitchResult {
+		val result = sessionRepository.switchCurrentSession(server.id, user.id)
+
+		if (result == SessionSwitchResult.SWITCHED) {
 			// Update last use in store
 			authenticationStore.getServer(server.id)?.let { storedServer ->
 				authenticationStore.putServer(server.id, storedServer.copy(lastUsed = Instant.now().toEpochMilli()))
@@ -191,7 +232,17 @@ class AuthenticationRepositoryImpl(
 			}
 		}
 
-		return authenticated
+		return result
+	}
+
+	override fun hasPin(serverId: UUID, userId: UUID): Boolean =
+		authenticationStore.getUser(serverId, userId)?.pinHash != null
+
+	override fun setPin(serverId: UUID, userId: UUID, pin: String?): Boolean {
+		val authStoreUser = authenticationStore.getUser(serverId, userId) ?: return false
+		val pinHash = pin?.let(ProfilePin::hash)
+
+		return authenticationStore.putUser(serverId, userId, authStoreUser.copy(pinHash = pinHash))
 	}
 
 	override fun logout(user: User): Boolean {

@@ -35,6 +35,7 @@ data class PrivateUser(
 	override val accessToken: String?,
 	override val imageTag: String?,
 	val lastUsed: Long,
+	val hasPin: Boolean = false,
 ) : User() {
 	override fun withToken(accessToken: String) = copy(accessToken = accessToken)
 }
@@ -48,6 +49,7 @@ data class PublicUser(
 	override val name: String,
 	override val accessToken: String?,
 	override val imageTag: String?,
+	val hasPassword: Boolean = true,
 ) : User() {
 	override fun withToken(accessToken: String) = copy(accessToken = accessToken)
 }

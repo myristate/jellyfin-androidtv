@@ -18,6 +18,8 @@ import org.jellyfin.androidtv.auth.model.AuthenticatedState
 import org.jellyfin.androidtv.auth.model.AuthenticatingState
 import org.jellyfin.androidtv.auth.model.ConnectedQuickConnectState
 import org.jellyfin.androidtv.auth.model.PendingQuickConnectState
+import org.jellyfin.androidtv.auth.model.InvalidPinState
+import org.jellyfin.androidtv.auth.model.RequirePinState
 import org.jellyfin.androidtv.auth.model.RequireSignInState
 import org.jellyfin.androidtv.auth.model.ServerUnavailableState
 import org.jellyfin.androidtv.auth.model.ServerVersionNotSupported
@@ -82,6 +84,8 @@ class UserLoginQuickConnectFragment : Fragment() {
 						is ApiClientErrorLoginState -> binding.error.setText(R.string.login_server_unavailable)
 						// Do nothing because the activity will respond to the new session
 						AuthenticatedState -> Unit
+						// Only used when opening a stored user
+						RequirePinState, InvalidPinState -> Unit
 						// Not initialized
 						null -> Unit
 					}

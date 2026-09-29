@@ -759,6 +759,7 @@ public class FullDetailsFragment extends Fragment implements RecordingIndicatorV
     TextUnderButton goToSeriesButton = null;
     TextUnderButton queueButton = null;
     TextUnderButton deleteButton = null;
+    TextUnderButton kidsButton = null;
     TextUnderButton moreButton;
     TextUnderButton playButton = null;
     TextUnderButton trailerButton = null;
@@ -1002,6 +1003,18 @@ public class FullDetailsFragment extends Fragment implements RecordingIndicatorV
             mDetailsOverviewRow.addAction(goToSeriesButton);
         }
 
+        if (FullDetailsFragmentHelperKt.canTagForKids(FullDetailsFragment.this)) {
+            // Administrators can mark movies and series as suitable for kids
+            kidsButton = TextUnderButton.create(requireContext(), R.drawable.ic_users, buttonSize, 0, getString(R.string.kids), new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    FullDetailsFragmentHelperKt.toggleKidsTag(FullDetailsFragment.this);
+                }
+            });
+            mDetailsOverviewRow.addAction(kidsButton);
+            FullDetailsFragmentHelperKt.loadKidsTag(FullDetailsFragment.this);
+        }
+
         boolean deletableItem = false;
         UserDto currentUser = KoinJavaComponent.<UserRepository>get(UserRepository.class).getCurrentUser().getValue();
         if (mBaseItem.getType() == BaseItemKind.RECORDING && currentUser.getPolicy().getEnableLiveTvManagement() && mBaseItem.getCanDelete() != null)
@@ -1130,6 +1143,7 @@ public class FullDetailsFragment extends Fragment implements RecordingIndicatorV
         if (shuffleButton != null) actionsList.add(shuffleButton);
         if (favButton != null) actionsList.add(favButton);
         if (goToSeriesButton != null) actionsList.add(goToSeriesButton);
+        if (kidsButton != null) actionsList.add(kidsButton);
 
         // reverse the list so the less important actions are hidden first
         Collections.reverse(actionsList);

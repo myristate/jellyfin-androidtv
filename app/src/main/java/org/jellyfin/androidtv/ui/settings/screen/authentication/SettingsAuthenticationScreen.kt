@@ -11,8 +11,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import org.jellyfin.androidtv.R
+import org.jellyfin.androidtv.auth.repository.AuthenticationRepository
 import org.jellyfin.androidtv.auth.repository.ServerRepository
 import org.jellyfin.androidtv.auth.repository.ServerUserRepository
+import org.jellyfin.androidtv.auth.repository.SessionRepository
+import org.jellyfin.androidtv.auth.repository.UserRepository
 import org.jellyfin.androidtv.auth.store.AuthenticationPreferences
 import org.jellyfin.androidtv.preference.constant.UserSelectBehavior
 import org.jellyfin.androidtv.ui.base.Icon
@@ -34,10 +37,15 @@ fun SettingsAuthenticationScreen(launchedFromLogin: Boolean = false) {
 	val serverRepository = koinInject<ServerRepository>()
 	val serverUserRepository = koinInject<ServerUserRepository>()
 	val authenticationPreferences = koinInject<AuthenticationPreferences>()
+	val authenticationRepository = koinInject<AuthenticationRepository>()
+	val sessionRepository = koinInject<SessionRepository>()
+	val userRepository = koinInject<UserRepository>()
 
 	LaunchedEffect(serverRepository) { serverRepository.loadStoredServers() }
 
 	val storedServers by serverRepository.storedServers.collectAsState()
+	val currentSession by sessionRepository.currentSession.collectAsState()
+	val currentUser by userRepository.currentUser.collectAsState()
 
 	SettingsColumn {
 		if (launchedFromLogin) item {
@@ -75,6 +83,23 @@ fun SettingsAuthenticationScreen(launchedFromLogin: Boolean = false) {
 				},
 				onClick = { router.push(Routes.AUTHENTICATION_AUTO_SIGN_IN) },
 				modifier = Modifier.focusKey(Routes.AUTHENTICATION_AUTO_SIGN_IN)
+			)
+		}
+
+		// The PIN belongs to the profile that is signed in, so it can't be changed from the login screen
+		val session = currentSession
+		if (!launchedFromLogin && session != null) item {
+			val hasPin = authenticationRepository.hasPin(session.serverId, session.userId)
+			val userName = currentUser?.name.orEmpty()
+
+			ListButton(
+				leadingContent = { Icon(painterResource(R.drawable.ic_user), contentDescription = null) },
+				headingContent = { Text(stringResource(R.string.pin_profile)) },
+				captionContent = {
+					Text(stringResource(if (hasPin) R.string.pin_profile_enabled else R.string.pin_profile_disabled, userName))
+				},
+				onClick = { router.push(Routes.AUTHENTICATION_PIN) },
+				modifier = Modifier.focusKey(Routes.AUTHENTICATION_PIN)
 			)
 		}
 

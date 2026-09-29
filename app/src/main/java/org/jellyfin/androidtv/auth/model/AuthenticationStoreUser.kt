@@ -13,4 +13,6 @@ data class AuthenticationStoreUser(
 	@SerialName("last_used") val lastUsed: Long = Instant.now().toEpochMilli(),
 	@SerialName("image_tag") val imageTag: String? = null,
 	@SerialName("access_token") val accessToken: String? = null,
+	// Salted hash of the profile PIN set on this device, see [org.jellyfin.androidtv.auth.ProfilePin]
+	@SerialName("pin_hash") val pinHash: String? = null,
 )

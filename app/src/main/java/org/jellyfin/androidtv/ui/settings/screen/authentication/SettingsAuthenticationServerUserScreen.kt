@@ -16,6 +16,7 @@ import org.jellyfin.androidtv.R
 import org.jellyfin.androidtv.auth.repository.AuthenticationRepository
 import org.jellyfin.androidtv.auth.repository.ServerRepository
 import org.jellyfin.androidtv.auth.repository.ServerUserRepository
+import org.jellyfin.androidtv.auth.repository.SessionRepository
 import org.jellyfin.androidtv.ui.base.Icon
 import org.jellyfin.androidtv.ui.base.Text
 import org.jellyfin.androidtv.ui.base.list.ListButton
@@ -33,6 +34,7 @@ fun SettingsAuthenticationServerUserScreen(serverId: UUID, userId: UUID) {
 	val serverRepository = koinInject<ServerRepository>()
 	val serverUserRepository = koinInject<ServerUserRepository>()
 	val authenticationRepository = koinInject<AuthenticationRepository>()
+	val sessionRepository = koinInject<SessionRepository>()
 
 	LaunchedEffect(serverRepository) { serverRepository.loadStoredServers() }
 
@@ -41,16 +43,22 @@ fun SettingsAuthenticationServerUserScreen(serverId: UUID, userId: UUID) {
 	}.collectAsState(null)
 
 	val user = remember(server) { server?.let(serverUserRepository::getStoredServerUsers)?.find { user -> user.id == userId } }
+	val currentSession by sessionRepository.currentSession.collectAsState()
+	// Only the profile itself may sign out of or remove a PIN protected profile
+	val locked = user?.hasPin == true && currentSession?.userId != userId
 
 	SettingsColumn {
 		item {
 			ListSection(
 				overlineContent = { Text(server?.name?.uppercase().orEmpty()) },
 				headingContent = { Text(user?.name.orEmpty()) },
+				captionContent = if (locked) {
+					{ Text(stringResource(R.string.pin_profile_enabled, user?.name.orEmpty())) }
+				} else null,
 			)
 		}
 
-		item {
+		if (!locked) item {
 			ListButton(
 				leadingContent = { Icon(painterResource(R.drawable.ic_logout), contentDescription = null) },
 				headingContent = { Text(stringResource(R.string.lbl_sign_out)) },
@@ -65,7 +73,7 @@ fun SettingsAuthenticationServerUserScreen(serverId: UUID, userId: UUID) {
 			)
 		}
 
-		item {
+		if (!locked) item {
 			ListButton(
 				leadingContent = { Icon(painterResource(R.drawable.ic_delete), contentDescription = null) },
 				headingContent = { Text(stringResource(R.string.lbl_remove)) },

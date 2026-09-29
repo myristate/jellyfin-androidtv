@@ -24,7 +24,9 @@ import org.jellyfin.androidtv.R
 import org.jellyfin.androidtv.auth.model.ApiClientErrorLoginState
 import org.jellyfin.androidtv.auth.model.AuthenticatedState
 import org.jellyfin.androidtv.auth.model.AuthenticatingState
+import org.jellyfin.androidtv.auth.model.InvalidPinState
 import org.jellyfin.androidtv.auth.model.PrivateUser
+import org.jellyfin.androidtv.auth.model.RequirePinState
 import org.jellyfin.androidtv.auth.model.RequireSignInState
 import org.jellyfin.androidtv.auth.model.Server
 import org.jellyfin.androidtv.auth.model.ServerUnavailableState
@@ -35,7 +37,6 @@ import org.jellyfin.androidtv.auth.repository.ServerRepository
 import org.jellyfin.androidtv.auth.repository.ServerUserRepository
 import org.jellyfin.androidtv.data.service.BackgroundService
 import org.jellyfin.androidtv.databinding.FragmentServerBinding
-import org.jellyfin.androidtv.ui.ServerButtonView
 import org.jellyfin.androidtv.ui.card.UserCardView
 import org.jellyfin.androidtv.ui.startup.StartupViewModel
 import org.jellyfin.androidtv.util.ListAdapter
@@ -77,10 +78,16 @@ class ServerFragment : Fragment() {
 					// Ignored states
 					AuthenticatingState -> Unit
 					AuthenticatedState -> Unit
+					InvalidPinState -> Unit
 					// Actions
 					RequireSignInState -> navigateFragment<UserLoginFragment>(createBundle {
 						putString(UserLoginFragment.ARG_SERVER_ID, server.id.toString())
 						putString(UserLoginFragment.ARG_USERNAME, user.name)
+					})
+
+					RequirePinState -> navigateFragment<UserPinFragment>(createBundle {
+						putString(UserPinFragment.ARG_SERVER_ID, server.id.toString())
+						putString(UserPinFragment.ARG_USER_ID, user.id.toString())
 					})
 					// Errors
 					ServerUnavailableState,
@@ -133,25 +140,8 @@ class ServerFragment : Fragment() {
 	private fun onServerChange(server: Server) {
 		binding.loginDisclaimer.text = server.loginDisclaimer?.let { markdownRenderer.toMarkdownSpanned(it) }
 
-		binding.serverButton.apply {
-			state = ServerButtonView.State.EDIT
-			name = server.name
-			address = server.address
-			version = server.version
-		}
-
-		binding.addUserButton.setOnClickListener {
-			navigateFragment<UserLoginFragment>(
-				args = createBundle {
-					putString(UserLoginFragment.ARG_SERVER_ID, server.id.toString())
-					putString(UserLoginFragment.ARG_USERNAME, null)
-				}
-			)
-		}
-
-		binding.serverButton.setOnClickListener {
-			navigateFragment<SelectServerFragment>(keepToolbar = true)
-		}
+		// The add account and change server buttons are in the toolbar, away from the user profiles
+		if (isResumed) startupViewModel.setUserPickerServer(server)
 
 		if (!server.versionSupported) {
 			binding.notification.isVisible = true
@@ -194,8 +184,16 @@ class ServerFragment : Fragment() {
 		backgroundService.clearBackgrounds()
 
 		val server = serverIdArgument?.let(startupViewModel::getServer)
-		if (server != null) startupViewModel.loadUsers(server)
-		else navigateFragment<SelectServerFragment>(keepToolbar = true)
+		if (server != null) {
+			startupViewModel.loadUsers(server)
+			startupViewModel.setUserPickerServer(server)
+		} else navigateFragment<SelectServerFragment>(keepToolbar = true)
+	}
+
+	override fun onPause() {
+		super.onPause()
+
+		startupViewModel.setUserPickerServer(null)
 	}
 
 	private class UserAdapter(
@@ -219,7 +217,9 @@ class ServerFragment : Fragment() {
 			holder.cardView.name = user.name
 			holder.cardView.image = startupViewModel.getUserImage(server, user)
 
-			holder.cardView.setPopupMenu {
+			// Signing out of or removing a PIN protected profile is only possible from its own settings
+			if (user is PrivateUser && user.hasPin) holder.cardView.setPopupMenu { }
+			else holder.cardView.setPopupMenu {
 				// Logout button
 				if (user is PrivateUser && user.accessToken != null) {
 					item(context.getString(R.string.lbl_sign_out)) {

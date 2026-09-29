@@ -21,15 +21,38 @@ import org.jellyfin.androidtv.ui.settings.composable.SettingsDialog
 import org.jellyfin.androidtv.ui.settings.composable.SettingsRouterContent
 import org.jellyfin.androidtv.ui.settings.routes
 
+/**
+ * @param serverName shows the add account and change server buttons when not null. They are kept small and out of
+ * the way in the toolbar so young kids picking their profile don't press them by accident.
+ */
 @Composable
 fun StartupToolbar(
-	openHelp: () -> Unit
+	openHelp: () -> Unit,
+	serverName: String? = null,
+	addAccount: () -> Unit = {},
+	changeServer: () -> Unit = {},
 ) {
 	var settingsVisible by remember { mutableStateOf(false) }
 
 	Toolbar(
 		end = {
 			ToolbarButtons {
+				if (serverName != null) {
+					IconButton(onClick = addAccount) {
+						Icon(
+							imageVector = ImageVector.vectorResource(R.drawable.ic_user_add),
+							contentDescription = stringResource(R.string.add_user),
+						)
+					}
+
+					IconButton(onClick = changeServer) {
+						Icon(
+							imageVector = ImageVector.vectorResource(R.drawable.ic_server),
+							contentDescription = stringResource(R.string.change_server, serverName),
+						)
+					}
+				}
+
 				IconButton(onClick = openHelp) {
 					Icon(
 						imageVector = ImageVector.vectorResource(R.drawable.ic_help),

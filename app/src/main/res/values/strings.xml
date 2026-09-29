@@ -379,7 +379,7 @@
     <string name="saved_servers">Saved servers</string>
     <string name="welcome_title">Welcome to Jellyfin!</string>
     <string name="welcome_content">Connect to your server to get started.</string>
-    <string name="no_user_warning">We couldn\'t find any accounts!\nAdd a new account by pressing the \"Add account\" button.</string>
+    <string name="no_user_warning">We couldn\'t find any accounts!\nAdd a new account with the \"Add account\" button at the top of the screen.</string>
     <string name="who_is_watching">Who\'s watching?</string>
     <string name="add_user">Add account</string>
     <string name="help">Help</string>
@@ -698,4 +698,28 @@
     <string name="truehd">TrueHD</string>
     <string name="eac3_atmos">DD+ Atmos</string>
     <string name="truehd_atmos">TrueHD Atmos</string>
+    <string name="pin_enter_for">Enter the PIN for %1$s</string>
+    <string name="pin_wrong">Wrong PIN, try again</string>
+    <string name="pin_locked_out">Too many wrong PINs, try again in %1$d seconds</string>
+    <string name="pin_delete_digit">Delete digit</string>
+    <string name="pin_profile">Profile PIN</string>
+    <string name="pin_profile_enabled">On, asks for a PIN before opening %1$s</string>
+    <string name="pin_profile_disabled">Off, anyone can open %1$s</string>
+    <string name="pin_profile_description">The PIN is only kept on this device. A profile with a PIN locks again after the app has been in the background for %1$d minutes.</string>
+    <string name="pin_set">Set a PIN</string>
+    <string name="pin_change">Change PIN</string>
+    <string name="pin_remove">Remove PIN</string>
+    <string name="pin_new">Enter a new %1$d-digit PIN</string>
+    <string name="pin_confirm">Enter the same PIN again</string>
+    <string name="pin_mismatch">The PINs didn\'t match, start again</string>
+    <string name="pin_saved">PIN saved</string>
+    <string name="pin_removed">PIN removed</string>
+    <string name="pin_save_failed">Could not save the PIN</string>
+    <string name="kids_tag_add">Allow for kids</string>
+    <string name="kids_tag_remove">Remove from kids</string>
+    <string name="kids">Kids</string>
+    <string name="kids_tag_added">%1$s is tagged \"%2$s\" and shows on kids\' profiles</string>
+    <string name="kids_tag_removed">%1$s is no longer tagged \"%2$s\"</string>
+    <string name="kids_tag_failed">Could not change the tags of %1$s</string>
+    <string name="change_server">Change server (%1$s)</string>
 </resources>

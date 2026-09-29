@@ -2,6 +2,7 @@ package org.jellyfin.androidtv.auth.repository
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -19,12 +20,17 @@ import org.jellyfin.androidtv.preference.constant.UserSelectBehavior.SPECIFIC_US
 import org.jellyfin.androidtv.util.sdk.forUser
 import org.jellyfin.sdk.api.client.ApiClient
 import org.jellyfin.sdk.api.client.exception.ApiClientException
+import org.jellyfin.sdk.api.client.exception.InvalidStatusException
 import org.jellyfin.sdk.api.client.extensions.clientLogApi
 import org.jellyfin.sdk.api.client.extensions.userApi
 import org.jellyfin.sdk.model.DeviceInfo
 import org.jellyfin.sdk.model.serializer.toUUIDOrNull
 import timber.log.Timber
+import java.net.HttpURLConnection
+import java.time.Duration
+import java.time.Instant
 import java.util.UUID
+import kotlin.time.Duration.Companion.seconds
 
 data class Session(
 	val userId: UUID,
@@ -38,13 +44,48 @@ enum class SessionRepositoryState {
 	SWITCHING_SESSION,
 }
 
+enum class SessionSwitchResult {
+	SWITCHED,
+
+	/**
+	 * The server could not be reached, the stored access token may still be valid.
+	 */
+	SERVER_UNAVAILABLE,
+
+	/**
+	 * The server rejected the session or is not supported.
+	 */
+	FAILED,
+}
+
 interface SessionRepository {
 	val currentSession: StateFlow<Session?>
 	val state: StateFlow<SessionRepositoryState>
 
 	suspend fun restoreSession(destroyOnly: Boolean)
-	suspend fun switchCurrentSession(serverId: UUID, userId: UUID): Boolean
+	suspend fun switchCurrentSession(serverId: UUID, userId: UUID): SessionSwitchResult
 	fun destroyCurrentSession()
+
+	/**
+	 * Remember when the app went to the background, used by [lockIfNeeded].
+	 */
+	fun onBackgrounded()
+
+	/**
+	 * Sign out of a PIN protected profile when the app was in the background for longer than [PIN_LOCK_TIMEOUT].
+	 * @return true when the session was signed out.
+	 */
+	fun lockIfNeeded(): Boolean
+
+	companion object {
+		val PIN_LOCK_TIMEOUT: Duration = Duration.ofMinutes(5)
+
+		/**
+		 * How long to keep retrying to restore a session while the server is unreachable, for example while the
+		 * network is still connecting after the device woke up.
+		 */
+		val RESTORE_RETRY_TIMEOUT: Duration = Duration.ofSeconds(20)
+	}
 }
 
 class SessionRepositoryImpl(
@@ -62,6 +103,11 @@ class SessionRepositoryImpl(
 	override val currentSession = _currentSession.asStateFlow()
 	private val _state = MutableStateFlow(SessionRepositoryState.READY)
 	override val state = _state.asStateFlow()
+	private var backgroundedAt: Instant? = null
+
+	private companion object {
+		const val RESTORE_RETRY_MAX_DELAY_SECONDS = 4
+	}
 
 	override suspend fun restoreSession(destroyOnly: Boolean): Unit = withContext(NonCancellable) {
 		currentSessionMutex.withLock {
@@ -75,11 +121,12 @@ class SessionRepositoryImpl(
 			when {
 				alwaysAuthenticate -> destroyCurrentSession()
 				autoLoginBehavior == DISABLED -> destroyCurrentSession()
-				autoLoginBehavior == LAST_USER && !destroyOnly -> setCurrentSession(createLastUserSession())
+				// Leaving the app does not lock a PIN protected profile straight away, see lockIfNeeded()
+				autoLoginBehavior == LAST_USER && !destroyOnly -> restoreUserSession(createLastUserSession())
 				autoLoginBehavior == SPECIFIC_USER && !destroyOnly -> {
 					val serverId = authenticationPreferences[AuthenticationPreferences.autoLoginServerId].toUUIDOrNull()
 					val userId = authenticationPreferences[AuthenticationPreferences.autoLoginUserId].toUUIDOrNull()
-					if (serverId != null && userId != null) setCurrentSession(createUserSession(serverId, userId))
+					if (serverId != null && userId != null) restoreUserSession(createUserSession(serverId, userId))
 				}
 			}
 
@@ -87,11 +134,30 @@ class SessionRepositoryImpl(
 		}
 	}
 
-	override suspend fun switchCurrentSession(serverId: UUID, userId: UUID): Boolean {
+	private suspend fun restoreUserSession(session: Session?) {
+		if (session == null) return
+
+		// A PIN protected profile is never signed in to automatically, the user picker asks for the PIN instead
+		if (authenticationStore.getUser(session.serverId, session.userId)?.pinHash != null) {
+			Timber.i("Not restoring session for PIN protected user ${session.userId}")
+			return
+		}
+
+		// Keep trying while the server is unreachable, the network may still be connecting after the device woke up
+		val deadline = Instant.now() + SessionRepository.RESTORE_RETRY_TIMEOUT
+		var attempt = 0
+		while (setCurrentSession(session) == SessionSwitchResult.SERVER_UNAVAILABLE && Instant.now() < deadline) {
+			attempt++
+			Timber.i("Server unavailable while restoring session, retrying (attempt $attempt)")
+			delay(attempt.coerceAtMost(RESTORE_RETRY_MAX_DELAY_SECONDS).seconds)
+		}
+	}
+
+	override suspend fun switchCurrentSession(serverId: UUID, userId: UUID): SessionSwitchResult {
 		// No change in user - don't switch
 		if (currentSession.value?.userId == userId) {
 			Timber.d("Current session user is the same as the requested user")
-			return false
+			return SessionSwitchResult.SWITCHED
 		}
 
 		_state.value = SessionRepositoryState.SWITCHING_SESSION
@@ -101,29 +167,54 @@ class SessionRepositoryImpl(
 		if (session == null) {
 			Timber.w("Could not switch to non-existing session for user $userId")
 			_state.value = SessionRepositoryState.READY
-			return false
+			return SessionSwitchResult.FAILED
 		}
 
-		val switched = setCurrentSession(session)
+		val result = setCurrentSession(session)
 		_state.value = SessionRepositoryState.READY
-		return switched
+		return result
 	}
 
 	override fun destroyCurrentSession() {
 		Timber.i("Destroying current session")
 
-		userRepository.setCurrentUser(null)
-		serverRepository.setCurrentServer(null)
-		_currentSession.value = null
+		clearCurrentSession()
 		_state.value = SessionRepositoryState.READY
 	}
 
-	private suspend fun setCurrentSession(session: Session?): Boolean {
+	override fun onBackgrounded() {
+		backgroundedAt = Instant.now()
+	}
+
+	override fun lockIfNeeded(): Boolean {
+		val since = backgroundedAt ?: return false
+		backgroundedAt = null
+
+		val session = currentSession.value ?: return false
+		if (Duration.between(since, Instant.now()) < SessionRepository.PIN_LOCK_TIMEOUT) return false
+		if (authenticationStore.getUser(session.serverId, session.userId)?.pinHash == null) return false
+
+		Timber.i("Locking PIN protected profile of user ${session.userId} after being in the background")
+		destroyCurrentSession()
+		return true
+	}
+
+	/**
+	 * Same as [destroyCurrentSession] without changing [state], so a session restore in progress is not reported as
+	 * finished.
+	 */
+	private fun clearCurrentSession() {
+		userRepository.setCurrentUser(null)
+		serverRepository.setCurrentServer(null)
+		_currentSession.value = null
+	}
+
+	private suspend fun setCurrentSession(session: Session?): SessionSwitchResult {
 		var server: Server? = null
 
 		if (session != null) {
 			// No change in session - don't switch
-			if (currentSession.value?.userId == session.userId) return true
+			if (currentSession.value?.userId == session.userId) return SessionSwitchResult.SWITCHED
 
 			// Update last active user
 			authenticationPreferences[AuthenticationPreferences.lastServerId] = session.serverId.toString()
@@ -131,7 +222,7 @@ class SessionRepositoryImpl(
 
 			// Check if server version is supported
 			server = serverRepository.getServer(session.serverId, true)
-			if (server == null || !server.versionSupported) return false
+			if (server == null || !server.versionSupported) return SessionSwitchResult.FAILED
 		}
 
 		// Update session after binding the apiclient settings
@@ -146,10 +237,19 @@ class SessionRepositoryImpl(
 				}
 				userRepository.setCurrentUser(user)
 				serverRepository.setCurrentServer(server)
-			} catch (err: ApiClientException) {
+			} catch (err: InvalidStatusException) {
 				Timber.e(err, "Unable to authenticate: bad response when getting user info")
-				destroyCurrentSession()
-				return false
+				clearCurrentSession()
+
+				// Only these mean the access token was rejected, other errors happen while the server is starting
+				return when (err.status) {
+					HttpURLConnection.HTTP_UNAUTHORIZED, HttpURLConnection.HTTP_FORBIDDEN -> SessionSwitchResult.FAILED
+					else -> SessionSwitchResult.SERVER_UNAVAILABLE
+				}
+			} catch (err: ApiClientException) {
+				Timber.e(err, "Unable to authenticate: server unreachable when getting user info")
+				clearCurrentSession()
+				return SessionSwitchResult.SERVER_UNAVAILABLE
 			}
 
 			// Update crash reporting URL
@@ -162,8 +262,10 @@ class SessionRepositoryImpl(
 		}
 		preferencesRepository.onSessionChanged()
 		_currentSession.value = session
+		// Time spent in the background before this session started doesn't count towards locking it
+		backgroundedAt = null
 
-		return true
+		return SessionSwitchResult.SWITCHED
 	}
 
 	private fun createLastUserSession(): Session? {
