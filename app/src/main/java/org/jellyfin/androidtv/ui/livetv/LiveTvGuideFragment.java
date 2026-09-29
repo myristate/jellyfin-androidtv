@@ -62,7 +62,8 @@ import kotlinx.coroutines.flow.MutableStateFlow;
 import timber.log.Timber;
 
 public class LiveTvGuideFragment extends Fragment implements LiveTvGuide, View.OnKeyListener {
-    public static final int GUIDE_ROW_HEIGHT_DP = 55;
+    // Compact rows so more channels fit on screen, the channel header and program cell layouts are sized to match
+    public static final int GUIDE_ROW_HEIGHT_DP = 40;
     public static final int GUIDE_ROW_WIDTH_PER_MIN_DP = 7;
     public static final int PAGE_SIZE = 75;
     public static final int NORMAL_HOURS = 9;

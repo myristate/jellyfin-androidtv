@@ -11,7 +11,7 @@
         android:id="@+id/channelScroller"
         android:layout_gravity="top|start|center"
         android:background="@color/channel_scroller_bg"
-        android:layout_marginTop="210sp"
+        android:layout_marginTop="130sp"
         android:focusable="false"
         android:focusableInTouchMode="false"
         android:layout_marginBottom="20sp">
@@ -88,11 +88,11 @@
         android:layout_alignParentEnd="true" />
 
     <org.jellyfin.androidtv.ui.AsyncImageView
-        android:layout_width="150sp"
-        android:layout_height="150sp"
+        android:layout_width="76sp"
+        android:layout_height="76sp"
         android:id="@+id/programImage"
         android:layout_gravity="start|top"
-        android:layout_margin="20sp" />
+        android:layout_margin="12sp" />
 
     <TextView
         android:layout_width="wrap_content"
@@ -100,7 +100,7 @@
         android:id="@+id/title"
         android:layout_alignTop="@+id/programImage"
         android:layout_toEndOf="@+id/programImage"
-        android:textSize="25sp"
+        android:textSize="20sp"
         android:layout_toStartOf="@+id/clock"
         android:layout_marginEnd="20sp"
         android:ellipsize="end"
@@ -121,16 +121,16 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:id="@+id/summary"
-        android:textSize="16sp"
+        android:textSize="13sp"
         android:layout_marginEnd="20sp"
         android:layout_below="@+id/infoRow"
         android:layout_toEndOf="@+id/programImage"
         android:layout_above="@+id/timelineHScroller"
         android:layout_toStartOf="@+id/clock"
-        android:layout_marginBottom="10sp"
-        android:layout_marginTop="5sp"
+        android:layout_marginBottom="4sp"
+        android:layout_marginTop="2sp"
         android:ellipsize="end"
-        android:maxLines="5"
+        android:maxLines="2"
         android:fontFamily="sans-serif-light" />
 
     <TextView

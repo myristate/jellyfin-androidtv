@@ -58,8 +58,10 @@ public class ItemLauncher {
 
                 if (!enableSmartScreen) return Destinations.INSTANCE.libraryBrowser(baseItem, null);
                 else return Destinations.INSTANCE.librarySmartScreen(baseItem);
-            case MUSIC:
             case LIVETV:
+                // Open the guide straight away, recordings, schedule and series are in the Live TV row on the home screen
+                return Destinations.INSTANCE.getLiveTvGuide();
+            case MUSIC:
                 return Destinations.INSTANCE.librarySmartScreen(baseItem);
             default:
                 return Destinations.INSTANCE.libraryBrowser(baseItem, null);

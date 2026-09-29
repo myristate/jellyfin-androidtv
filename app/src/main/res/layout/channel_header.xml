@@ -6,43 +6,44 @@
     android:background="@drawable/light_border">
 
     <TextView
-        android:layout_width="100sp"
+        android:layout_width="96sp"
         android:layout_height="wrap_content"
         android:text="Small Text"
         android:id="@+id/channelName"
         android:layout_alignParentTop="true"
         android:layout_alignParentStart="true"
-        android:layout_margin="2sp"
+        android:layout_marginStart="2sp"
+        android:ellipsize="end"
         android:maxLines="1"
-        android:textSize="18sp" />
+        android:textSize="15sp" />
 
     <TextView
-        android:layout_width="100sp"
+        android:layout_width="96sp"
         android:layout_height="wrap_content"
         android:text="Small Text"
         android:id="@+id/channelNumber"
         android:maxLines="1"
-        android:textSize="14sp"
+        android:textSize="12sp"
         android:layout_marginStart="3sp"
         android:layout_marginEnd="3sp"
         android:layout_below="@+id/channelName"
         android:layout_alignParentStart="true" />
 
     <org.jellyfin.androidtv.ui.AsyncImageView
-        android:layout_width="100sp"
-        android:layout_height="50sp"
+        android:layout_width="56sp"
+        android:layout_height="32sp"
         android:id="@+id/channelImage"
-        android:layout_alignParentTop="true"
+        android:layout_centerVertical="true"
         android:layout_toEndOf="@+id/channelName"
         android:scaleType="centerInside" />
 
     <ImageView
         android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
+        android:layout_height="12sp"
         android:id="@+id/favImage"
         android:layout_alignParentBottom="true"
         android:layout_toStartOf="@+id/channelImage"
-        android:scaleType="center"
+        android:scaleType="fitCenter"
         android:src="@drawable/ic_heart_red"
         android:visibility="gone" />
 </RelativeLayout>
