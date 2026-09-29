@@ -18,7 +18,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.findViewTreeCompositionContext
@@ -66,12 +65,13 @@ class CardPresenter(
 	constructor() : this(true)
 
 	override fun onCreateViewHolder(parent: ViewGroup): ViewHolder {
-		val view = ComposeView(parent.context).apply {
+		val view = PresenterComposeView(parent.context).apply {
 			setParentCompositionContext(parent.findViewTreeCompositionContext())
 			setViewTreeLifecycleOwner(parent.findViewTreeLifecycleOwner())
 			setViewTreeSavedStateRegistryOwner(parent.findViewTreeSavedStateRegistryOwner())
 			isFocusable = true
-			isFocusableInTouchMode = true
+			// A tap or mouse click should click straight away instead of only focusing, the remote is unaffected
+			isFocusableInTouchMode = false
 
 			setOnLongClickListener {
 				context.getActivity()?.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MENU)) ?: false
@@ -94,7 +94,7 @@ class CardPresenter(
 		viewHolder.unbind()
 	}
 
-	private inner class CardViewHolder(composeView: ComposeView) : ViewHolder(composeView) {
+	private inner class CardViewHolder(composeView: PresenterComposeView) : ViewHolder(composeView) {
 		private val _item = MutableStateFlow<BaseRowItem?>(null)
 		private val _focused = MutableStateFlow(false)
 

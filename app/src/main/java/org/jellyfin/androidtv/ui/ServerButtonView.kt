@@ -51,11 +51,13 @@ fun ServerButton(
 	version: @Composable () -> Unit,
 	onClick: () -> Unit,
 	modifier: Modifier = Modifier,
+	onLongClick: (() -> Unit)? = null,
 	interactionSource: MutableInteractionSource = remember { MutableInteractionSource() },
 	shape: Shape = ButtonDefaults.Shape,
 ) {
 	ButtonBase(
 		onClick = onClick,
+		onLongClick = onLongClick,
 		modifier = modifier,
 		interactionSource = interactionSource,
 		shape = shape,
@@ -173,8 +175,9 @@ class ServerButtonView @JvmOverloads constructor(
 			shape = RoundedCornerShape(3.dp),
 			// New implementation doesn't end up at 51.dp by default so force the old size
 			modifier = Modifier.height(51.dp),
-			// We use our own click handler for the view
-			onClick = {}
+			// The remote clicks the view itself, forward touch and mouse clicks to the view's click handlers too
+			onClick = { performClick() },
+			onLongClick = { performLongClick() },
 		)
 	}
 

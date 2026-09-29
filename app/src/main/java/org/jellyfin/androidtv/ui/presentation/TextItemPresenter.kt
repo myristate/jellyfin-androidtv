@@ -17,7 +17,8 @@ class TextItemPresenter : Presenter() {
 		val view = TextView(parent.context).apply {
 			layoutParams = ViewGroup.LayoutParams(ITEM_WIDTH, ITEM_HEIGHT)
 			isFocusable = true
-			isFocusableInTouchMode = true
+			// A tap or mouse click should click straight away instead of only focusing, the remote is unaffected
+			isFocusableInTouchMode = false
 			setTextColor(Color.WHITE)
 			gravity = Gravity.CENTER
 			textSize = TEXT_SIZE

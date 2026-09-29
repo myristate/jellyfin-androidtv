@@ -21,7 +21,8 @@ class TextUnderButton @JvmOverloads constructor(
 
 	init {
 		isFocusable = true
-		isFocusableInTouchMode = true
+		// A tap or mouse click should click straight away instead of only focusing, the remote is unaffected
+		isFocusableInTouchMode = false
 		descendantFocusability = FOCUS_BLOCK_DESCENDANTS
 		if (AndroidVersion.isAtLeastO) defaultFocusHighlightEnabled = false
 	}

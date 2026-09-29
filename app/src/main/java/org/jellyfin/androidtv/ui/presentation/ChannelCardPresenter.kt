@@ -15,7 +15,8 @@ class ChannelCardPresenter : Presenter() {
 	override fun onCreateViewHolder(parent: ViewGroup): ViewHolder {
 		val view = ChannelCardView(parent.context).apply {
 			isFocusable = true
-			isFocusableInTouchMode = true
+			// A tap or mouse click should click straight away instead of only focusing, the remote is unaffected
+			isFocusableInTouchMode = false
 		}
 
 		return ViewHolder(view)

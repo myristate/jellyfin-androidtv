@@ -7,7 +7,7 @@ import android.view.KeyEvent
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.FocusInteraction
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -52,6 +52,7 @@ fun UserCard(
 	name: @Composable () -> Unit,
 	onClick: () -> Unit,
 	modifier: Modifier = Modifier,
+	onLongClick: (() -> Unit)? = null,
 	interactionSource: MutableInteractionSource = remember { MutableInteractionSource() },
 	shape: Shape = CircleShape,
 ) {
@@ -69,7 +70,12 @@ fun UserCard(
 		modifier = modifier
 			.scale(scale)
 			.focusable(interactionSource = interactionSource)
-			.clickable(interactionSource = interactionSource, onClick = onClick, indication = null)
+			.combinedClickable(
+				interactionSource = interactionSource,
+				indication = null,
+				onClick = onClick,
+				onLongClick = onLongClick,
+			)
 	) {
 		Box(
 			modifier = Modifier
@@ -167,8 +173,9 @@ class UserCardView @JvmOverloads constructor(
 				.padding(horizontal = 6.dp, vertical = 8.dp)
 				.width(110.dp),
 			interactionSource = interactionSource,
-			// We use our own click handler for views used in presenters
-			onClick = {}
+			// The remote clicks the view itself, forward touch and mouse clicks to the view's click handlers too
+			onClick = { performClick() },
+			onLongClick = { performLongClick() },
 		)
 	}
 }

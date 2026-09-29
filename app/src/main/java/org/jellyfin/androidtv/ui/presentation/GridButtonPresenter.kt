@@ -1,5 +1,6 @@
 package org.jellyfin.androidtv.ui.presentation
 
+import android.view.MotionEvent
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.compose.foundation.Image
@@ -32,10 +33,14 @@ class GridButtonPresenter @JvmOverloads constructor(
 	private class ComposeViewWrapper(composeView: ComposeView) : FrameLayout(composeView.context) {
 		init {
 			isFocusable = true
-			isFocusableInTouchMode = true
+			// A tap or mouse click should click straight away instead of only focusing, the remote is unaffected
+			isFocusableInTouchMode = false
 			descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
 			addView(composeView)
 		}
+
+		// Leanback sets the click listener on this wrapper, keep touch and mouse input away from the composed content
+		override fun onInterceptTouchEvent(ev: MotionEvent): Boolean = true
 
 		// Hack to prevent Compose crash with leanback presenters
 		override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
