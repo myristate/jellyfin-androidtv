@@ -122,6 +122,12 @@ public class PlaybackController implements PlaybackControllerNotifiable {
     private int playbackRetries = 0;
     private long lastPlaybackError = 0;
 
+    // Some live TV channels never start (the tuner opens but no picture arrives), retry them before giving up
+    private static final long LIVE_TV_START_TIMEOUT = 20000;
+    private static final int LIVE_TV_START_RETRIES = 2;
+    private int liveTvStartRetries = 0;
+    private final Runnable liveTvStartWatchdog = this::onLiveTvStartTimeout;
+
     private Display.Mode[] mDisplayModes;
     private RefreshRateSwitchingBehavior refreshRateSwitchingBehavior = RefreshRateSwitchingBehavior.DISABLED;
 
@@ -165,6 +171,7 @@ public class PlaybackController implements PlaybackControllerNotifiable {
     public void setItems(List<BaseItemDto> items) {
         mItems = items;
         mCurrentIndex = 0;
+        liveTvStartRetries = 0;
     }
 
     public float getPlaybackSpeed() {
@@ -500,6 +507,10 @@ public class PlaybackController implements PlaybackControllerNotifiable {
 
                 playInternal(getCurrentlyPlayingItem(), position, internalOptions);
                 mPlaybackState = PlaybackState.BUFFERING;
+                if (isLiveTv) {
+                    mHandler.removeCallbacks(liveTvStartWatchdog);
+                    mHandler.postDelayed(liveTvStartWatchdog, LIVE_TV_START_TIMEOUT);
+                }
                 mFragment.setPlayPauseActionState(0);
                 mFragment.setCurrentTime(position);
 
@@ -600,6 +611,7 @@ public class PlaybackController implements PlaybackControllerNotifiable {
     private void handlePlaybackInfoError(Exception exception) {
         Timber.e(exception, "Error getting playback stream info");
         if (mFragment == null) return;
+        if (retryLiveTvStart()) return;
         if (exception instanceof PlaybackException) {
             PlaybackException ex = (PlaybackException) exception;
             switch (ex.getErrorCode()) {
@@ -868,7 +880,30 @@ public class PlaybackController implements PlaybackControllerNotifiable {
         }
     }
 
+    private boolean retryLiveTvStart() {
+        if (!isLiveTv || mFragment == null || liveTvStartRetries >= LIVE_TV_START_RETRIES) return false;
+
+        liveTvStartRetries++;
+        Timber.w("Live TV channel did not start, retry %s of %s", liveTvStartRetries, LIVE_TV_START_RETRIES);
+        Utils.showToast(mFragment.getContext(), mFragment.getString(R.string.msg_live_tv_retrying));
+        stop();
+        play(0);
+        return true;
+    }
+
+    private void onLiveTvStartTimeout() {
+        if (!isLiveTv || isPlaying() || isPaused()) return;
+        if (retryLiveTvStart()) return;
+
+        Timber.e("Live TV channel did not start after %s retries", LIVE_TV_START_RETRIES);
+        if (mFragment != null) {
+            Utils.showToast(mFragment.getContext(), mFragment.getString(R.string.msg_live_tv_failed));
+            mFragment.closePlayer();
+        }
+    }
+
     public void stop() {
+        mHandler.removeCallbacks(liveTvStartWatchdog);
         refreshCurrentPosition();
         Timber.i("stop called at %s", mCurrentPosition);
         stopReportLoop();
@@ -1289,6 +1324,8 @@ public class PlaybackController implements PlaybackControllerNotifiable {
     public void onProgress() {
         refreshCurrentPosition();
         if (isPlaying()) {
+            if (isLiveTv && liveTvStartRetries > 0) liveTvStartRetries = 0;
+            mHandler.removeCallbacks(liveTvStartWatchdog);
             if (!spinnerOff) {
                 if (mStartPosition > 0) {
                     initialSeek(mStartPosition);
