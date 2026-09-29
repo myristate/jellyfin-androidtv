@@ -73,7 +73,9 @@ class CardPresenter(
 			// A tap or mouse click should click straight away instead of only focusing, the remote is unaffected
 			isFocusableInTouchMode = false
 
-			setOnLongClickListener {
+			setOnLongClickListener { view ->
+				// The menu is built for the selected card, a long press by touch or mouse selects this card first
+				if (!view.isFocused) view.requestFocusFromTouch()
 				context.getActivity()?.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MENU)) ?: false
 			}
 		}

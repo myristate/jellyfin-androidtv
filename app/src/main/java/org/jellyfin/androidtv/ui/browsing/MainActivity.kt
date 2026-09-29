@@ -101,6 +101,13 @@ class MainActivity : FragmentActivity() {
 		return true
 	}
 
+	override fun onUserInteraction() {
+		super.onUserInteraction()
+
+		// Touch and mouse input keep the screensaver away like key presses do
+		interactionTrackerViewModel.notifyInteraction(false, userInitiated = true)
+	}
+
 	override fun onPause() {
 		super.onPause()
 

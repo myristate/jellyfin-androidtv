@@ -7,6 +7,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -31,6 +32,7 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Job
@@ -51,6 +53,10 @@ fun PlayerOverlayLayout(
 ) = Box(
 	modifier = modifier
 		.fillMaxSize()
+		// A tap or mouse click on the picture shows or hides the overlay, taps on its controls are handled by them
+		.pointerInput(visibilityState) {
+			detectTapGestures { visibilityState.toggle() }
+		}
 		.focusable()
 		.onPreviewKeyEvent {
 			// Reset hide timer on key presses

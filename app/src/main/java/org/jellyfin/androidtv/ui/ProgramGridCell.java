@@ -16,6 +16,7 @@ import android.widget.TextView;
 
 import org.jellyfin.androidtv.R;
 import org.jellyfin.androidtv.preference.LiveTvPreferences;
+import org.jellyfin.androidtv.ui.livetv.GuideCellTouchKt;
 import org.jellyfin.androidtv.ui.livetv.LiveTvGuide;
 import org.jellyfin.androidtv.util.DateTimeExtensionsKt;
 import org.jellyfin.androidtv.util.Utils;
@@ -48,6 +49,8 @@ public class ProgramGridCell extends RelativeLayout implements RecordingIndicato
         this.addView(v);
 
         setFocusable(true);
+        // Taps and mouse clicks act like the select button, the remote is handled by the guide
+        GuideCellTouchKt.handleGuideCellTouches(this, activity);
 
         mProgramName = findViewById(R.id.programName);
         mInfoRow = findViewById(R.id.infoRow);

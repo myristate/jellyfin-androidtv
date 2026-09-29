@@ -28,6 +28,7 @@ import androidx.leanback.widget.Row;
 import androidx.leanback.widget.RowPresenter;
 import androidx.leanback.widget.VerticalGridPresenter;
 import androidx.lifecycle.Lifecycle;
+import androidx.recyclerview.widget.RecyclerView;
 
 import org.jellyfin.androidtv.R;
 import org.jellyfin.androidtv.constant.ChangeTriggerType;
@@ -234,6 +235,16 @@ public class BrowseGridFragment extends Fragment implements View.OnKeyListener {
         mGridView.setHorizontalSpacing(mGridItemSpacingHorizontal);
         mGridView.setVerticalSpacing(mGridItemSpacingVertical);
         mGridView.setFocusable(true);
+        // More items load when the selection nears the end, scrolling by touch or mouse doesn't select so check the
+        // last visible item as well
+        mGridView.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            @Override
+            public void onScrolled(@NonNull RecyclerView recyclerView, int dx, int dy) {
+                if (mAdapter == null || recyclerView.getChildCount() == 0) return;
+                int lastVisible = recyclerView.getChildAdapterPosition(recyclerView.getChildAt(recyclerView.getChildCount() - 1));
+                if (lastVisible != RecyclerView.NO_POSITION) mAdapter.loadMoreItemsIfNeeded(lastVisible);
+            }
+        });
         binding.rowsFragment.removeAllViews();
         binding.rowsFragment.addView(mGridViewHolder.view);
 

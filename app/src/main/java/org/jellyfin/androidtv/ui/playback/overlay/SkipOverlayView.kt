@@ -6,6 +6,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -39,6 +40,7 @@ import kotlin.time.Duration.Companion.milliseconds
 @Composable
 fun SkipOverlayComposable(
 	visible: Boolean,
+	onSkip: () -> Unit = {},
 ) {
 	Box(
 		contentAlignment = Alignment.BottomEnd,
@@ -49,6 +51,8 @@ fun SkipOverlayComposable(
 			Row(
 				modifier = Modifier
 					.clip(RoundedCornerShape(6.dp))
+					// A tap or mouse click skips like the select button, the rest of the full screen overlay lets touches through
+					.clickable(onClick = onSkip)
 					.background(colorResource(R.color.popup_menu_background).copy(alpha = 0.6f))
 					.padding(10.dp),
 				horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -102,6 +106,9 @@ class SkipOverlayView @JvmOverloads constructor(
 			_targetPosition.value = value?.milliseconds
 		}
 
+	/** Called when the skip prompt is tapped or clicked. */
+	var onSkip: () -> Unit = {}
+
 	var skipUiEnabled: Boolean
 		get() = _skipUiEnabled.value
 		set(value) {
@@ -133,6 +140,6 @@ class SkipOverlayView @JvmOverloads constructor(
 			_targetPosition.value = null
 		}
 
-		SkipOverlayComposable(visible)
+		SkipOverlayComposable(visible, onSkip = { onSkip() })
 	}
 }

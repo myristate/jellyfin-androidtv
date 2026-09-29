@@ -5,6 +5,7 @@ import static java.lang.Math.round;
 import android.content.Context;
 import android.os.Handler;
 import android.view.KeyEvent;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
@@ -160,6 +161,20 @@ public class CustomPlaybackTransportControlGlue extends PlaybackTransportControl
                     rl.addView(mEndsText, rlp2);
                     bar.addView(rl, 0, rlp);
                 }
+
+                // Leanback's seek bar only follows the remote, a tap or mouse click on it seeks to that point
+                View progressBar = vh.view.findViewById(androidx.leanback.R.id.playback_progress);
+                if (progressBar != null) progressBar.setOnTouchListener((v, event) -> {
+                    VideoPlayerAdapter adapter = getPlayerAdapter();
+                    long duration = adapter.getDuration();
+                    if (!adapter.canSeek() || duration <= 0 || v.getWidth() <= 0) return false;
+
+                    if (event.getActionMasked() == MotionEvent.ACTION_UP) {
+                        float fraction = Math.max(0f, Math.min(1f, event.getX() / v.getWidth()));
+                        adapter.seekTo((long) (fraction * duration));
+                    }
+                    return true;
+                });
 
                 return vh;
             }

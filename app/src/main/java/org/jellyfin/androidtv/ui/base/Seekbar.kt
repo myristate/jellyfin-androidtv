@@ -2,6 +2,8 @@ package org.jellyfin.androidtv.ui.base
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Box
@@ -12,6 +14,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
@@ -22,12 +25,13 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
+import androidx.compose.ui.input.pointer.pointerInput
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.times
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @Immutable
 data class SeekbarColors(
@@ -106,6 +110,10 @@ fun Seekbar(
 	val visibleProgress = progressOverride ?: progress
 	val knobAlpha by animateFloatAsState(if (focused) 1f else 0f)
 	var scrubCancelJob by remember { mutableStateOf<Job?>(null) }
+	// Read the latest callbacks without restarting a gesture that is in progress
+	val currentOnSeek by rememberUpdatedState(onSeek)
+	val currentOnScrubbing by rememberUpdatedState(onScrubbing)
+	val acceptsTouch = enabled && onSeek != null
 
 	Box(
 		modifier = modifier
@@ -144,6 +152,44 @@ fun Seekbar(
 				}
 
 				return@onKeyEvent isScrubbing
+			}
+			// A tap or mouse click seeks to that point, dragging scrubs like holding left or right on the remote
+			.pointerInput(acceptsTouch) {
+				if (!acceptsTouch) return@pointerInput
+				detectTapGestures { offset ->
+					val newProgress = (offset.x / size.width).coerceIn(0f, 1f)
+					scrubCancelJob?.cancel()
+					progressOverride = newProgress
+					currentOnSeek?.invoke(newProgress)
+					scrubCancelJob = coroutineScope.launch {
+						delay(300.milliseconds)
+						progressOverride = null
+					}
+				}
+			}
+			.pointerInput(acceptsTouch) {
+				if (!acceptsTouch) return@pointerInput
+				fun endScrub() {
+					scrubCancelJob?.cancel()
+					scrubCancelJob = coroutineScope.launch {
+						delay(300.milliseconds)
+						currentOnScrubbing?.invoke(false)
+						progressOverride = null
+					}
+				}
+				detectHorizontalDragGestures(
+					onDragStart = {
+						scrubCancelJob?.cancel()
+						currentOnScrubbing?.invoke(true)
+					},
+					onDragEnd = { endScrub() },
+					onDragCancel = { endScrub() },
+				) { change, _ ->
+					change.consume()
+					val newProgress = (change.position.x / size.width).coerceIn(0f, 1f)
+					progressOverride = newProgress
+					currentOnSeek?.invoke(newProgress)
+				}
 			}
 			.focusable(interactionSource = interactionSource, enabled = enabled)
 			.drawWithContent {

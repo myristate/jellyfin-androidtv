@@ -12,6 +12,7 @@ import android.widget.TextView;
 import androidx.core.content.ContextCompat;
 
 import org.jellyfin.androidtv.R;
+import org.jellyfin.androidtv.ui.livetv.GuideCellTouchKt;
 import org.jellyfin.androidtv.ui.livetv.LiveTvGuide;
 import org.jellyfin.androidtv.ui.livetv.LiveTvGuideFragment;
 import org.jellyfin.androidtv.util.ImageHelper;
@@ -44,6 +45,8 @@ public class GuideChannelHeader extends RelativeLayout {
         ));
         this.addView(v);
         this.setFocusable(true);
+        // Taps and mouse clicks act like the select button, the remote is handled by the guide
+        GuideCellTouchKt.handleGuideCellTouches(this, tvGuide);
         ((TextView) findViewById(R.id.channelName)).setText(channel.getName());
         ((TextView) findViewById(R.id.channelNumber)).setText(channel.getNumber());
         mChannelImage = findViewById(R.id.channelImage);

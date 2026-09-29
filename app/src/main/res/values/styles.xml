@@ -23,6 +23,11 @@
 
     <style name="WindowAnimation"></style>
 
+    <!-- A tap or mouse click on a playback control acts straight away instead of only focusing it -->
+    <style name="Widget.Jellyfin.PlaybackControlsButton" parent="Widget.Leanback.PlaybackControlsButtonStyle">
+        <item name="android:focusableInTouchMode">false</item>
+    </style>
+
     <style name="WindowAnimation.SlideTop">
         <item name="android:windowEnterAnimation">@anim/abc_slide_in_top</item>
         <item name="android:windowExitAnimation">@anim/abc_slide_out_top</item>

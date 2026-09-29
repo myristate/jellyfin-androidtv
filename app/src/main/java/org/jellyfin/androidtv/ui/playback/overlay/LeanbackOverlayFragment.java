@@ -3,11 +3,13 @@ package org.jellyfin.androidtv.ui.playback.overlay;
 import static org.koin.java.KoinJavaComponent.inject;
 
 import android.os.Bundle;
+import android.view.MotionEvent;
 import android.view.View;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.leanback.app.PlaybackSupportFragment;
+import androidx.leanback.widget.BaseGridView;
 
 import org.jellyfin.androidtv.preference.UserPreferences;
 import org.jellyfin.androidtv.preference.UserSettingPreferences;
@@ -52,6 +54,31 @@ public class LeanbackOverlayFragment extends PlaybackSupportFragment {
         super.onViewCreated(view, savedInstanceState);
 
         super.hideControlsOverlay(false);
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+
+        // Leanback only shows the controls for key presses, a tap or mouse click on the video shows them too.
+        // While the controls are showing, taps reach the buttons and the seek bar as usual and keep them from fading.
+        // This replaces the listener leanback sets in its own onResume.
+        View grid = requireView().findViewById(androidx.leanback.R.id.container_list);
+        if (grid instanceof BaseGridView) {
+            ((BaseGridView) grid).setOnTouchInterceptListener(event -> {
+                if (isControlsOverlayVisible()) {
+                    tickle();
+                    return false;
+                }
+                CustomPlaybackOverlayFragment master = playerAdapter != null ? playerAdapter.getMasterOverlayFragment() : null;
+                if (event.getActionMasked() == MotionEvent.ACTION_UP && master != null && master.canShowControlsFromTouch()) {
+                    // Key presses allow the overlay before showing it, see CustomPlaybackOverlayFragment.keyListener
+                    setShouldShowOverlay(true);
+                    showControlsOverlay(true);
+                }
+                return true;
+            });
+        }
     }
 
     public void initFromView(CustomPlaybackOverlayFragment customPlaybackOverlayFragment) {

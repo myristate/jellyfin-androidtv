@@ -2,6 +2,8 @@ package org.jellyfin.androidtv.ui.base.form
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Box
@@ -10,6 +12,7 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
@@ -20,6 +23,8 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.pointerInput
+import kotlin.math.roundToInt
 import org.jellyfin.androidtv.ui.base.JellyfinTheme
 
 @Immutable
@@ -59,6 +64,9 @@ fun RangeControl(
 ) {
 	val focused by interactionSource.collectIsFocusedAsState()
 	val knobSize by animateFloatAsState(if (focused) 1.75f else 1f)
+	// Read the latest callback without restarting a gesture that is in progress
+	val currentOnValueChange by rememberUpdatedState(onValueChange)
+	val acceptsTouch = enabled && onValueChange != null
 
 	Box(
 		modifier = modifier
@@ -79,6 +87,29 @@ fun RangeControl(
 				if (value != newValue && onValueChange != null) onValueChange(newValue)
 
 				return@onKeyEvent isScrubbing
+			}
+			// A tap, mouse click or drag sets the value at that point, in steps of stepForward like the remote
+			.pointerInput(acceptsTouch, min, max, stepForward) {
+				if (!acceptsTouch) return@pointerInput
+
+				fun valueAt(x: Float): Float {
+					val raw = min + (x / size.width).coerceIn(0f, 1f) * (max - min)
+					val stepped = if (stepForward > 0f) min + ((raw - min) / stepForward).roundToInt() * stepForward else raw
+					return stepped.coerceIn(min, max)
+				}
+
+				awaitEachGesture {
+					val down = awaitFirstDown()
+					currentOnValueChange?.invoke(valueAt(down.position.x))
+					do {
+						val event = awaitPointerEvent()
+						val change = event.changes.firstOrNull() ?: break
+						if (change.pressed) {
+							change.consume()
+							currentOnValueChange?.invoke(valueAt(change.position.x))
+						}
+					} while (change.pressed)
+				}
 			}
 			.focusable(interactionSource = interactionSource, enabled = enabled)
 			.drawWithContent {

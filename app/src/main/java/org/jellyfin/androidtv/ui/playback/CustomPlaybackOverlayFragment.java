@@ -301,6 +301,14 @@ public class CustomPlaybackOverlayFragment extends Fragment implements LiveTvGui
 
         // Set initial skip overlay state
         binding.skipOverlay.setSkipUiEnabled(!mIsVisible && !mGuideVisible && !mPopupPanelVisible);
+        // Tapping the skip prompt skips like the select button
+        binding.skipOverlay.setOnSkip(() -> {
+            Long target = binding.skipOverlay.getTargetPositionMs();
+            if (target != null) playbackControllerContainer.getValue().getPlaybackController().seek(target, true);
+            leanbackOverlayFragment.setShouldShowOverlay(false);
+            clearSkipOverlay();
+            return kotlin.Unit.INSTANCE;
+        });
     }
 
     @Override
@@ -404,14 +412,48 @@ public class CustomPlaybackOverlayFragment extends Fragment implements LiveTvGui
         }
     };
 
+    private void longPressSelectedProgram() {
+        if (mSelectedProgramView instanceof ProgramGridCell)
+            showProgramOptions();
+        else if (mSelectedProgramView instanceof GuideChannelHeader)
+            CustomPlaybackOverlayFragmentHelperKt.toggleFavorite(this);
+    }
+
+    /**
+     * Tune to the selected program when it has started or show its options, or tune to the selected channel.
+     * @return true when something was selected.
+     */
+    private boolean activateSelectedProgram() {
+        if (mGuideVisible && mSelectedProgramView instanceof ProgramGridCell && mSelectedProgram != null && mSelectedProgram.getChannelId() != null) {
+            if (mSelectedProgram.getStartDate().isBefore(LocalDateTime.now()))
+                switchChannel(mSelectedProgram.getChannelId());
+            else
+                showProgramOptions();
+            return true;
+        } else if (mSelectedProgramView instanceof GuideChannelHeader) {
+            switchChannel(((GuideChannelHeader) mSelectedProgramView).getChannel().getId(), false);
+            return true;
+        }
+        return false;
+    }
+
+    @Override
+    public void onGuideCellClicked(@NonNull RelativeLayout cell) {
+        setSelectedProgram(cell);
+        activateSelectedProgram();
+    }
+
+    @Override
+    public void onGuideCellLongClicked(@NonNull RelativeLayout cell) {
+        setSelectedProgram(cell);
+        longPressSelectedProgram();
+    }
+
     @Override
     public boolean onKey(View v, int keyCode, KeyEvent event) {
         if (event.isLongPress()) {
             if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER) {
-                if (mSelectedProgramView instanceof ProgramGridCell)
-                    showProgramOptions();
-                else if (mSelectedProgramView instanceof GuideChannelHeader)
-                    CustomPlaybackOverlayFragmentHelperKt.toggleFavorite(this);
+                longPressSelectedProgram();
                 return true;
             }
         } else if (event.getAction() == KeyEvent.ACTION_DOWN) {
@@ -424,16 +466,7 @@ public class CustomPlaybackOverlayFragment extends Fragment implements LiveTvGui
 
             if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER) {
                 if ((event.getFlags() & KeyEvent.FLAG_CANCELED_LONG_PRESS) == 0) {
-                    if (mGuideVisible && mSelectedProgramView instanceof ProgramGridCell && mSelectedProgram != null && mSelectedProgram.getChannelId() != null) {
-                        if (mSelectedProgram.getStartDate().isBefore(LocalDateTime.now()))
-                            switchChannel(mSelectedProgram.getChannelId());
-                        else
-                            showProgramOptions();
-                        return true;
-                    } else if (mSelectedProgramView instanceof GuideChannelHeader) {
-                        switchChannel(((GuideChannelHeader) mSelectedProgramView).getChannel().getId(), false);
-                        return true;
-                    }
+                    if (activateSelectedProgram()) return true;
                 }
                 return false;
             }
@@ -734,6 +767,10 @@ public class CustomPlaybackOverlayFragment extends Fragment implements LiveTvGui
         setFadingEnabled(false);
         binding.popupArea.startAnimation(showPopup);
         binding.skipOverlay.setSkipUiEnabled(!mIsVisible && !mGuideVisible && !mPopupPanelVisible);
+    }
+
+    public boolean canShowControlsFromTouch() {
+        return !mGuideVisible && !mPopupPanelVisible;
     }
 
     private void hidePopupPanel() {

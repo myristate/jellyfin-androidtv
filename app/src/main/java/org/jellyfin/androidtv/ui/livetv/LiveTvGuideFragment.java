@@ -309,13 +309,54 @@ public class LiveTvGuideFragment extends Fragment implements LiveTvGuide, View.O
         switch (keyCode){
             case KeyEvent.KEYCODE_ENTER:
             case KeyEvent.KEYCODE_DPAD_CENTER:
-                if (mSelectedProgramView instanceof ProgramGridCell)
-                    showProgramOptions();
-                else if(mSelectedProgramView instanceof GuideChannelHeader)
-                    LiveTvGuideFragmentHelperKt.toggleFavorite(this);
+                longPressSelectedProgram();
                 return true;
         }
         return false;
+    }
+
+    private void longPressSelectedProgram() {
+        if (mSelectedProgramView instanceof ProgramGridCell)
+            showProgramOptions();
+        else if(mSelectedProgramView instanceof GuideChannelHeader)
+            LiveTvGuideFragmentHelperKt.toggleFavorite(this);
+    }
+
+    /**
+     * Play the selected program when it has started or show its options, or tune to the selected channel.
+     * @return true when a program was selected.
+     */
+    private boolean activateSelectedProgram() {
+        if (mSelectedProgramView instanceof ProgramGridCell) {
+            if (mSelectedProgram.getStartDate().isBefore(LocalDateTime.now()))
+                playbackHelper.getValue().retrieveAndPlay(mSelectedProgram.getChannelId(), false, requireContext());
+            else
+                showProgramOptions();
+            return true;
+        } else if (mSelectedProgramView instanceof GuideChannelHeader) {
+            // Tuning directly to a channel
+            GuideChannelHeader channelHeader = (GuideChannelHeader) mSelectedProgramView;
+            playbackHelper.getValue().getItemsToPlay(requireContext(), channelHeader.getChannel(), false, false, new Response<List<BaseItemDto>>(getLifecycle()) {
+                @Override
+                public void onResponse(List<BaseItemDto> response) {
+                    if (!isActive()) return;
+                    playbackLauncher.getValue().launch(requireContext(), response);
+                }
+            });
+        }
+        return false;
+    }
+
+    @Override
+    public void onGuideCellClicked(@NonNull RelativeLayout cell) {
+        setSelectedProgram(cell);
+        activateSelectedProgram();
+    }
+
+    @Override
+    public void onGuideCellLongClicked(@NonNull RelativeLayout cell) {
+        setSelectedProgram(cell);
+        longPressSelectedProgram();
     }
 
     private boolean onKeyUp(int keyCode, KeyEvent event) {
@@ -327,23 +368,7 @@ public class LiveTvGuideFragment extends Fragment implements LiveTvGuide, View.O
             case KeyEvent.KEYCODE_ENTER:
             case KeyEvent.KEYCODE_DPAD_CENTER:
                 if ((event.getFlags() & KeyEvent.FLAG_CANCELED_LONG_PRESS) == 0) {
-                    if (mSelectedProgramView instanceof ProgramGridCell) {
-                        if (mSelectedProgram.getStartDate().isBefore(LocalDateTime.now()))
-                            playbackHelper.getValue().retrieveAndPlay(mSelectedProgram.getChannelId(), false, requireContext());
-                        else
-                            showProgramOptions();
-                        return true;
-                    } else if (mSelectedProgramView instanceof GuideChannelHeader) {
-                        // Tuning directly to a channel
-                        GuideChannelHeader channelHeader = (GuideChannelHeader) mSelectedProgramView;
-                        playbackHelper.getValue().getItemsToPlay(requireContext(), channelHeader.getChannel(), false, false, new Response<List<BaseItemDto>>(getLifecycle()) {
-                            @Override
-                            public void onResponse(List<BaseItemDto> response) {
-                                if (!isActive()) return;
-                                playbackLauncher.getValue().launch(requireContext(), response);
-                            }
-                        });
-                    }
+                    if (activateSelectedProgram()) return true;
                 }
                 return false;
             case KeyEvent.KEYCODE_MEDIA_PLAY:
