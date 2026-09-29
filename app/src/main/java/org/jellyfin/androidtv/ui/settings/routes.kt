@@ -36,6 +36,8 @@ import org.jellyfin.androidtv.ui.settings.screen.livetv.SettingsLiveTvGuideChann
 import org.jellyfin.androidtv.ui.settings.screen.livetv.SettingsLiveTvGuideFiltersScreen
 import org.jellyfin.androidtv.ui.settings.screen.livetv.SettingsLiveTvGuideOptionsScreen
 import org.jellyfin.androidtv.ui.settings.screen.playback.SettingsPlaybackAVCLevelScreen
+import org.jellyfin.androidtv.ui.settings.screen.profile.SettingsProfilePictureScreen
+import org.jellyfin.androidtv.ui.settings.screen.profile.SettingsProfileScreen
 import org.jellyfin.androidtv.ui.settings.screen.playback.SettingsPlaybackAdvancedScreen
 import org.jellyfin.androidtv.ui.settings.screen.playback.SettingsPlaybackAudioBehaviorScreen
 import org.jellyfin.androidtv.ui.settings.screen.playback.SettingsPlaybackBitstreamAudioScreen
@@ -72,6 +74,8 @@ object Routes {
 	const val AUTHENTICATION_SORT_BY = "/authentication/sort-by"
 	const val AUTHENTICATION_AUTO_SIGN_IN = "/authentication/auto-sign-in"
 	const val AUTHENTICATION_PIN = "/authentication/pin"
+	const val PROFILE = "/profile"
+	const val PROFILE_PICTURE = "/profile/picture"
 	const val CUSTOMIZATION = "/customization"
 	const val CUSTOMIZATION_THEME = "/customization/theme"
 	const val CUSTOMIZATION_CLOCK = "/customization/clock"
@@ -153,6 +157,12 @@ val routes = mapOf<String, RouteComposable>(
 	},
 	Routes.AUTHENTICATION_PIN to {
 		SettingsAuthenticationPinScreen()
+	},
+	Routes.PROFILE to {
+		SettingsProfileScreen()
+	},
+	Routes.PROFILE_PICTURE to {
+		SettingsProfilePictureScreen()
 	},
 	Routes.CUSTOMIZATION to {
 		SettingsCustomizationScreen()

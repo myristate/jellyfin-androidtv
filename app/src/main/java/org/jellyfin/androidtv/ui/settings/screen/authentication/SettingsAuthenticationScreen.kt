@@ -52,11 +52,13 @@ fun SettingsAuthenticationScreen(launchedFromLogin: Boolean = false) {
 			ListSection(
 				overlineContent = { Text(stringResource(R.string.app_name).uppercase()) },
 				headingContent = { Text(stringResource(R.string.pref_login)) },
+				captionContent = { Text(stringResource(R.string.settings_signed_out)) },
 			)
 		} else item {
 			ListSection(
 				overlineContent = { Text(stringResource(R.string.settings).uppercase()) },
 				headingContent = { Text(stringResource(R.string.pref_login)) },
+				captionContent = currentUser?.name?.let { name -> { Text(stringResource(R.string.signed_in_as, name)) } },
 			)
 		}
 

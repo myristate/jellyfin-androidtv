@@ -722,4 +722,17 @@
     <string name="kids_tag_removed">%1$s is no longer tagged \"%2$s\"</string>
     <string name="kids_tag_failed">Could not change the tags of %1$s</string>
     <string name="change_server">Change server (%1$s)</string>
+    <string name="signed_in_as">Signed in as %1$s</string>
+    <string name="settings_signed_out">Settings for this TV. No one is signed in, open a profile to change its picture, PIN and other settings.</string>
+    <string name="profile">Profile</string>
+    <string name="profile_description">Profile picture, PIN and switching profile</string>
+    <string name="profile_picture_change">Change profile picture</string>
+    <string name="profile_picture_change_description">Pick a poster from your films and shows</string>
+    <string name="profile_picture_remove">Remove profile picture</string>
+    <string name="profile_picture_changed">Profile picture changed</string>
+    <string name="profile_picture_removed">Profile picture removed</string>
+    <string name="profile_picture_failed">Could not change the profile picture. The server may not allow this profile to change its picture.</string>
+    <string name="profile_picture_none">No posters found</string>
+    <string name="profile_switch">Switch profile</string>
+    <string name="profile_switch_description">Go back to \"Who\'s watching?\"</string>
 </resources>

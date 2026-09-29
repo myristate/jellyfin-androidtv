@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -37,7 +38,8 @@ import org.jellyfin.androidtv.auth.ProfilePin
 import org.jellyfin.androidtv.ui.base.Icon
 import org.jellyfin.androidtv.ui.base.LocalTextStyle
 import org.jellyfin.androidtv.ui.base.Text
-import org.jellyfin.androidtv.ui.base.button.Button
+import org.jellyfin.androidtv.ui.base.button.ButtonBase
+import org.jellyfin.androidtv.ui.base.button.ButtonDefaults
 
 private val digitKeys = mapOf(
 	Key.Zero to '0', Key.NumPad0 to '0',
@@ -173,9 +175,13 @@ private fun PinPadButton(
 	onClick: () -> Unit,
 	modifier: Modifier = Modifier,
 	content: @Composable () -> Unit,
-) = Button(
+) = ButtonBase(
 	onClick = onClick,
 	modifier = modifier.size(56.dp),
+	shape = ButtonDefaults.Shape,
 ) {
-	content()
+	// Button lays its content out in a row at the top of the button, center the digit in the circle instead
+	Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+		content()
+	}
 }

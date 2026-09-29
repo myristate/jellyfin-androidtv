@@ -1,11 +1,19 @@
 package org.jellyfin.androidtv.ui.settings.screen
 
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
 import org.jellyfin.androidtv.R
+import org.jellyfin.androidtv.auth.repository.UserRepository
 import org.jellyfin.androidtv.ui.base.Icon
+import org.jellyfin.androidtv.ui.base.ProfilePicture
 import org.jellyfin.androidtv.ui.base.Text
 import org.jellyfin.androidtv.ui.base.list.ListButton
 import org.jellyfin.androidtv.ui.base.list.ListSection
@@ -13,18 +21,46 @@ import org.jellyfin.androidtv.ui.navigation.LocalRouter
 import org.jellyfin.androidtv.ui.navigation.focus.focusKey
 import org.jellyfin.androidtv.ui.settings.Routes
 import org.jellyfin.androidtv.ui.settings.composable.SettingsColumn
+import org.jellyfin.androidtv.util.apiclient.getUrl
+import org.jellyfin.androidtv.util.apiclient.primaryImage
+import org.jellyfin.sdk.api.client.ApiClient
+import org.koin.compose.koinInject
 
 @Composable
 fun SettingsMainScreen() {
 	val router = LocalRouter.current
+	val userRepository = koinInject<UserRepository>()
+	val api = koinInject<ApiClient>()
+	val currentUser by userRepository.currentUser.collectAsState()
 
 	SettingsColumn {
 		item {
 			ListSection(
 				overlineContent = { Text(stringResource(R.string.app_name).uppercase()) },
 				headingContent = { Text(stringResource(R.string.settings)) },
-				captionContent = { Text(stringResource(R.string.settings_description)) },
+				captionContent = {
+					val user = currentUser
+					if (user != null) Text(stringResource(R.string.signed_in_as, user.name.orEmpty()))
+					else Text(stringResource(R.string.settings_description))
+				},
 			)
+		}
+
+		currentUser?.let { user ->
+			item {
+				ListButton(
+					leadingContent = {
+						ProfilePicture(
+							url = user.primaryImage?.getUrl(api),
+							modifier = Modifier.size(32.dp).clip(CircleShape),
+						)
+					},
+					headingContent = { Text(user.name.orEmpty()) },
+					captionContent = { Text(stringResource(R.string.profile_description)) },
+					onClick = { router.push(Routes.PROFILE) },
+					modifier = Modifier.focusKey(Routes.PROFILE),
+				)
+			}
 		}
 
 		item {
