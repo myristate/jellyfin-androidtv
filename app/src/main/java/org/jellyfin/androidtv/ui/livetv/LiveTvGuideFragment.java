@@ -274,9 +274,20 @@ public class LiveTvGuideFragment extends Fragment implements LiveTvGuide, View.O
         doLoad();
         if (livePreview != null) livePreview.resume();
         mHandler.postDelayed(refreshWhenStale, STALE_CHECK_MS);
+        mHandler.postDelayed(updateNowMarks, NOW_MARKS_MS);
     }
 
     private static final long STALE_CHECK_MS = 60_000;
+
+    // (Finly) Keep the "on now" and finished marks in step with the clock
+    private static final long NOW_MARKS_MS = 30_000;
+    private final Runnable updateNowMarks = new Runnable() {
+        @Override
+        public void run() {
+            LiveTvGuideFragmentHelperKt.updateNowMarks(mProgramRows, LocalDateTime.now());
+            mHandler.postDelayed(this, NOW_MARKS_MS);
+        }
+    };
     // Don't reload the guide under someone who is moving around it
     private static final long NAVIGATION_QUIET_MS = 30_000;
     private long lastNavigationAt = 0;
@@ -329,6 +340,7 @@ public class LiveTvGuideFragment extends Fragment implements LiveTvGuide, View.O
         // Closing the preview's stream here still lets full screen playback share it, the server keeps it briefly
         if (livePreview != null) livePreview.stop();
         mHandler.removeCallbacks(refreshWhenStale);
+        mHandler.removeCallbacks(updateNowMarks);
     }
 
     @Override

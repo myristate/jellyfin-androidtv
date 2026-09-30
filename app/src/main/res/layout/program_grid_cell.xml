@@ -7,6 +7,15 @@
     android:padding="2sp"
     tools:layout_width="210dp">
 
+    <!-- (Finly) Marks the programme that is on now -->
+    <View
+        android:id="@+id/nowIndicator"
+        android:layout_width="3dp"
+        android:layout_height="match_parent"
+        android:layout_alignParentStart="true"
+        android:background="@color/finly_now"
+        android:visibility="gone" />
+
     <TextView
         android:id="@+id/programName"
         android:layout_width="wrap_content"

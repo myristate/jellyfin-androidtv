@@ -65,4 +65,6 @@
     <color name="lb_basic_card_info_bg_color">@color/grey</color>
 
     <color name="background_filter">#94101010</color>
+    <!-- (Finly) The guide's "on now" marker -->
+    <color name="finly_now">#00A4DC</color>
 </resources>

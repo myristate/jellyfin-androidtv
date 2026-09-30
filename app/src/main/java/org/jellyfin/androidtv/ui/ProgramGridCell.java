@@ -29,6 +29,7 @@ public class ProgramGridCell extends RelativeLayout implements RecordingIndicato
 
     private LiveTvGuide mActivity;
     private TextView mProgramName;
+    private View mNowIndicator;
     private LinearLayout mInfoRow;
     private BaseItemDto mProgram;
     private ImageView mRecIndicator;
@@ -60,16 +61,21 @@ public class ProgramGridCell extends RelativeLayout implements RecordingIndicato
 
         setCellBackground();
 
+        mNowIndicator = findViewById(R.id.nowIndicator);
+
         if (program.getStartDate() != null && program.getEndDate() != null) {
             LocalDateTime localStart = program.getStartDate();
             if (localStart.plusMinutes(1).isBefore(activity.getCurrentLocalStartDate())) {
                 mProgramName.setText("<< "+mProgramName.getText());
-                TextView time = new TextView(context);
-                time.setTypeface(Typeface.create("sans-serif-light", Typeface.NORMAL));
-                time.setTextSize(12);
-                time.setText(DateTimeExtensionsKt.getTimeFormatter(getContext()).format(program.getStartDate()));
-                mInfoRow.addView(time);
             }
+            // (Finly) Every programme shows when it starts and ends
+            TextView time = new TextView(context);
+            time.setTypeface(Typeface.create("sans-serif-light", Typeface.NORMAL));
+            time.setTextSize(12);
+            java.time.format.DateTimeFormatter formatter = DateTimeExtensionsKt.getTimeFormatter(getContext());
+            time.setText(formatter.format(program.getStartDate()) + "\u2013" + formatter.format(program.getEndDate()));
+            mInfoRow.addView(time);
+            updateNow(LocalDateTime.now());
         }
 
         LiveTvPreferences liveTvPreferences = get(LiveTvPreferences.class);
@@ -156,6 +162,18 @@ public class ProgramGridCell extends RelativeLayout implements RecordingIndicato
     }
 
     public BaseItemDto getProgram() { return mProgram; }
+
+    /**
+     * (Finly) Marks the programme if it's on now and fades it once it has finished. The guide calls this every
+     * 30 seconds so the marks follow the clock.
+     */
+    public void updateNow(LocalDateTime now) {
+        if (mProgram == null || mProgram.getStartDate() == null || mProgram.getEndDate() == null) return;
+        boolean onNow = !now.isBefore(mProgram.getStartDate()) && now.isBefore(mProgram.getEndDate());
+        boolean finished = !now.isBefore(mProgram.getEndDate());
+        if (mNowIndicator != null) mNowIndicator.setVisibility(onNow ? View.VISIBLE : View.GONE);
+        setAlpha(finished ? 0.45f : 1f);
+    }
 
     public void setLast() { isLast = true; }
     public boolean isLast() { return isLast; }

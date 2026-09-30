@@ -2,6 +2,7 @@ package org.jellyfin.androidtv.ui.livetv
 
 import android.content.Context
 import android.view.View
+import android.view.ViewGroup
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.core.view.isVisible
@@ -15,6 +16,7 @@ import org.jellyfin.androidtv.data.model.DataRefreshService
 import org.jellyfin.androidtv.data.repository.ItemMutationRepository
 import org.jellyfin.androidtv.databinding.LiveTvGuideBinding
 import org.jellyfin.androidtv.ui.GuideChannelHeader
+import org.jellyfin.androidtv.ui.ProgramGridCell
 import org.jellyfin.androidtv.ui.navigation.ProvideRouter
 import org.jellyfin.androidtv.ui.settings.Routes
 import org.jellyfin.androidtv.ui.settings.composable.SettingsDialog
@@ -134,4 +136,14 @@ fun LiveTvGuideFragment.addSettingsFilters(binding: LiveTvGuideBinding): Mutable
 	}
 
 	return visible
+}
+
+/** (Finly) Updates the "on now" and finished marks on every programme in the guide. */
+fun updateNowMarks(root: ViewGroup, now: LocalDateTime) {
+	for (i in 0 until root.childCount) {
+		when (val child = root.getChildAt(i)) {
+			is ProgramGridCell -> child.updateNow(now)
+			is ViewGroup -> updateNowMarks(child, now)
+		}
+	}
 }
