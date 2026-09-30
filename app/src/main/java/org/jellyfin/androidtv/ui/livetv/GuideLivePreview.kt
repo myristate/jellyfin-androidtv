@@ -21,20 +21,23 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.extractor.ts.TsExtractor
 import androidx.media3.ui.PlayerView
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import org.jellyfin.androidtv.preference.UserPreferences
 import org.jellyfin.androidtv.ui.playback.LiveAwareLoadControl
 import org.jellyfin.androidtv.ui.playback.LiveTvExtractorsFactory
 import org.jellyfin.androidtv.ui.playback.PlaybackStartTiming
+import org.jellyfin.androidtv.ui.playback.liveStreamScope
+import org.jellyfin.androidtv.ui.playback.openDetached
 import org.jellyfin.androidtv.util.profile.createDeviceProfile
 import org.jellyfin.sdk.api.client.ApiClient
 import org.jellyfin.sdk.api.client.exception.InvalidStatusException
 import org.jellyfin.sdk.api.client.extensions.mediaInfoApi
 import org.jellyfin.sdk.api.client.extensions.videosApi
 import org.jellyfin.sdk.model.ServerVersion
+import org.jellyfin.sdk.model.api.MediaSourceInfo
 import org.jellyfin.sdk.model.api.PlaybackInfoDto
 import org.koin.java.KoinJavaComponent
 import timber.log.Timber
@@ -125,8 +128,10 @@ class GuideLivePreview(
 		handler.postDelayed(stopIdle, MAX_PREVIEW_MS)
 
 		openJob = scope.launch {
-			val result = runCatching {
-				withContext(Dispatchers.IO) {
+			val source = try {
+				// The server tunes the channel while this runs. When the highlight moves on or the guide is left before
+				// it answers, the open still finishes and its stream is closed, so no tuner is left busy.
+				openDetached(release = { opened: MediaSourceInfo? -> opened?.liveStreamId?.let { closeLiveStreamNow(it) } }) {
 					api.mediaInfoApi.getPostedPlaybackInfo(
 						itemId = channelId,
 						data = PlaybackInfoDto(
@@ -138,13 +143,15 @@ class GuideLivePreview(
 						)
 					).content.mediaSources.firstOrNull()
 				}
-			}.onFailure { Timber.w(it, "Unable to open guide preview for %s", channelId) }
-			val source = result.getOrNull()
-
-			// The server tuned the channel and found nothing being broadcast, say so instead of an empty preview
-			val error = result.exceptionOrNull()
-			if (error is InvalidStatusException && error.status == 503 && previewChannel == channelId) {
-				offAirMessage.visibility = View.VISIBLE
+			} catch (err: CancellationException) {
+				throw err
+			} catch (err: Exception) {
+				Timber.w(err, "Unable to open guide preview for %s", channelId)
+				// The server tuned the channel and found nothing being broadcast, say so instead of an empty preview
+				if (err is InvalidStatusException && err.status == 503 && previewChannel == channelId) {
+					offAirMessage.visibility = View.VISIBLE
+				}
+				null
 			}
 
 			if (source == null || previewChannel != channelId) {
@@ -224,11 +231,12 @@ class GuideLivePreview(
 
 	private fun closeLiveStream(id: String) {
 		// Not tied to the guide's lifecycle, the close has to reach the server even when the guide is being left
-		@Suppress("OPT_IN_USAGE")
-		kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
-			runCatching { api.mediaInfoApi.closeLiveStream(id) }
-				.onFailure { Timber.w(it, "Unable to close guide preview stream %s", id) }
-		}
+		liveStreamScope.launch(Dispatchers.IO) { closeLiveStreamNow(id) }
+	}
+
+	private suspend fun closeLiveStreamNow(id: String) {
+		runCatching { api.mediaInfoApi.closeLiveStream(id) }
+			.onFailure { Timber.w(it, "Unable to close guide preview stream %s", id) }
 	}
 
 	companion object {
