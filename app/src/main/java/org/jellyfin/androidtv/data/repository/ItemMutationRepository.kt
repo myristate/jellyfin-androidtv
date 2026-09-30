@@ -10,19 +10,13 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import org.jellyfin.androidtv.auth.repository.SessionRepository
-import org.jellyfin.androidtv.auth.store.AuthenticationStore
 import org.jellyfin.androidtv.data.model.DataRefreshService
-import org.jellyfin.sdk.Jellyfin
 import org.jellyfin.sdk.api.client.ApiClient
 import org.jellyfin.sdk.api.client.HttpMethod
-import org.jellyfin.sdk.api.client.exception.ApiClientException
 import org.jellyfin.sdk.api.client.extensions.playStateApi
-import org.jellyfin.sdk.api.client.extensions.userApi
 import org.jellyfin.sdk.api.client.extensions.userLibraryApi
 import org.jellyfin.sdk.model.UUID
 import org.jellyfin.sdk.model.api.UserItemDataDto
-import timber.log.Timber
 import java.time.Instant
 
 interface ItemMutationRepository {
@@ -37,12 +31,6 @@ interface ItemMutationRepository {
 	 */
 	suspend fun setTag(item: UUID, tag: String, tagged: Boolean)
 
-	/**
-	 * Remove a tag using an administrator signed in on this device, for users that can't edit items themselves.
-	 * @return false when no administrator is signed in on this device.
-	 */
-	suspend fun removeTagAsAdministrator(item: UUID, tag: String): Boolean
-
 	companion object {
 		/**
 		 * The tag that marks movies and series as suitable for kids. A kid's user on the server is limited to it with
@@ -55,9 +43,6 @@ interface ItemMutationRepository {
 class ItemMutationRepositoryImpl(
 	private val api: ApiClient,
 	private val dataRefreshService: DataRefreshService,
-	private val jellyfin: Jellyfin,
-	private val authenticationStore: AuthenticationStore,
-	private val sessionRepository: SessionRepository,
 ) : ItemMutationRepository {
 	override suspend fun setFavorite(item: UUID, favorite: Boolean): UserItemDataDto {
 		val response by when {
@@ -82,31 +67,6 @@ class ItemMutationRepositoryImpl(
 		getItemJson(item).tags().any { it.equals(tag, ignoreCase = true) }
 
 	override suspend fun setTag(item: UUID, tag: String, tagged: Boolean) = setTag(api, item, tag, tagged)
-
-	override suspend fun removeTagAsAdministrator(item: UUID, tag: String): Boolean {
-		val administratorApi = findAdministratorApi() ?: return false
-		setTag(administratorApi, item, tag, tagged = false)
-		return true
-	}
-
-	/**
-	 * An API client for an administrator whose access token is stored on this device for the current server.
-	 */
-	private suspend fun findAdministratorApi(): ApiClient? = withContext(Dispatchers.IO) {
-		val serverId = sessionRepository.currentSession.value?.serverId ?: return@withContext null
-		val server = authenticationStore.getServer(serverId) ?: return@withContext null
-
-		server.users.values.mapNotNull { it.accessToken }.firstNotNullOfOrNull { accessToken ->
-			val candidate = jellyfin.createApi(server.address, accessToken = accessToken)
-			val isAdministrator = try {
-				candidate.userApi.getCurrentUser().content.policy?.isAdministrator == true
-			} catch (error: ApiClientException) {
-				Timber.w(error, "Stored access token could not be used to find an administrator")
-				false
-			}
-			candidate.takeIf { isAdministrator }
-		}
-	}
 
 	private suspend fun setTag(client: ApiClient, item: UUID, tag: String, tagged: Boolean) {
 		val itemJson = getItemJson(client, item)

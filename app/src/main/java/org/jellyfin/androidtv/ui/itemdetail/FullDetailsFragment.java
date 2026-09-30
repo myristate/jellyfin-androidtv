@@ -1013,12 +1013,12 @@ public class FullDetailsFragment extends Fragment implements RecordingIndicatorV
             });
             mDetailsOverviewRow.addAction(kidsButton);
             FullDetailsFragmentHelperKt.loadKidsTag(FullDetailsFragment.this);
-        } else if (FullDetailsFragmentHelperKt.canRemoveFromKids(FullDetailsFragment.this)) {
-            // Kids' profiles can only take a film away from the kids, a parent adds it back
-            kidsButton = TextUnderButton.create(requireContext(), R.drawable.ic_users, buttonSize, 0, getString(R.string.kids_tag_remove), new View.OnClickListener() {
+        } else if (FullDetailsFragmentHelperKt.showRemoveButton(FullDetailsFragment.this)) {
+            // Restricted profiles, such as a child's, get a button to take a film away; a parent puts it back
+            kidsButton = TextUnderButton.create(requireContext(), R.drawable.ic_delete, buttonSize, 0, getString(R.string.remove_button), new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
-                    FullDetailsFragmentHelperKt.confirmRemoveFromKids(FullDetailsFragment.this);
+                    FullDetailsFragmentHelperKt.showRemoveMenu(FullDetailsFragment.this, v);
                 }
             });
             mDetailsOverviewRow.addAction(kidsButton);

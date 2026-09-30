@@ -9,6 +9,7 @@ import androidx.fragment.app.FragmentActivity;
 import androidx.lifecycle.LifecycleOwner;
 
 import org.jellyfin.androidtv.R;
+import org.jellyfin.androidtv.ui.itemhandling.RemoveFromProfile;
 import org.jellyfin.androidtv.constant.CustomMessage;
 import org.jellyfin.androidtv.data.repository.CustomMessageRepository;
 import org.jellyfin.androidtv.data.repository.ItemMutationRepository;
@@ -248,6 +249,10 @@ public class KeyProcessor {
                     menu.getMenu().add(0, MENU_MARK_FAVORITE, order++, activity.getString(R.string.lbl_add_favorite));
                 }
             }
+
+            order = RemoveFromProfile.addTo(menu.getMenu(), order, item, activity);
+            // Pick up level changes for next time
+            RemoveFromProfile.refreshLevels(activity);
         }
 
         menu.setOnMenuItemClickListener(new KeyProcessorItemMenuClickListener(activity, rowItem));
@@ -284,6 +289,12 @@ public class KeyProcessor {
 
         @Override
         public boolean onMenuItemClick(MenuItem menuItem) {
+            // Refreshing the item finds it gone and takes its card away
+            if (RemoveFromProfile.handle(activity, menuItem.getItemId(), item, () ->
+                    customMessageRepository.getValue().pushMessage(CustomMessage.RefreshCurrentItem.INSTANCE))) {
+                return true;
+            }
+
             switch (menuItem.getItemId()) {
                 case MENU_PLAY:
                     playbackHelper.getValue().retrieveAndPlay(item.getId(), false, activity);

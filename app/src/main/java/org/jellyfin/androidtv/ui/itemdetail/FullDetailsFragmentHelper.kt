@@ -18,6 +18,8 @@ import org.jellyfin.androidtv.ui.navigation.Destinations
 import org.jellyfin.androidtv.ui.navigation.NavigationRepository
 import org.jellyfin.androidtv.util.TimeUtils
 import org.jellyfin.androidtv.util.apiclient.getSeriesOverview
+import org.jellyfin.androidtv.ui.itemhandling.RemoveFromProfile
+import org.jellyfin.androidtv.util.MenuBuilder
 import org.jellyfin.androidtv.util.popupMenu
 import org.jellyfin.androidtv.util.sdk.TrailerUtils.getExternalTrailerIntent
 import org.jellyfin.androidtv.util.sdk.compat.canResume
@@ -102,6 +104,9 @@ fun FullDetailsFragment.showDetailsMenu(
 		item(getString(R.string.lbl_goto_series)) { gotoSeries() }
 	}
 
+	// Restricted profiles have their own Remove button
+	if (!showRemoveButton()) addRemoveChoices(this@showDetailsMenu, baseItemDto)
+
 }.showIfNotEmpty()
 
 private val kidsTaggableTypes = setOf(
@@ -123,52 +128,38 @@ fun FullDetailsFragment.canTagForKids(): Boolean {
 }
 
 /**
- * A kid's profile, limited to the kids tag on the server, may only take items away from the kids, never add them.
+ * Profiles with restrictions, such as a child's, get a visible Remove button; everyone else finds the same choices in
+ * the more menu.
  */
-fun FullDetailsFragment.canRemoveFromKids(): Boolean {
+fun FullDetailsFragment.showRemoveButton(): Boolean {
 	val userRepository by inject<UserRepository>()
 	val policy = userRepository.currentUser.value?.policy ?: return false
-	val limitedToKids = policy.allowedTags.orEmpty().any { it.equals(ItemMutationRepository.KIDS_TAG, ignoreCase = true) }
+	val restricted = policy.maxParentalRating != null || !policy.allowedTags.isNullOrEmpty() || !policy.blockedTags.isNullOrEmpty()
 
-	return !policy.isAdministrator && limitedToKids && mBaseItem.type in kidsTaggableTypes
+	return !policy.isAdministrator && restricted && RemoveFromProfile.canRemove(mBaseItem)
 }
 
-fun FullDetailsFragment.confirmRemoveFromKids() {
-	val item = mBaseItem
+fun FullDetailsFragment.showRemoveMenu(anchor: View) = popupMenu(requireContext(), anchor) {
+	addRemoveChoices(this@showRemoveMenu, mBaseItem)
+}.showIfNotEmpty()
 
-	AlertDialog.Builder(requireContext())
-		.setTitle(R.string.kids_remove_title)
-		.setMessage(getString(R.string.kids_remove_message, item.name))
-		.setPositiveButton(R.string.kids_tag_remove) { _, _ -> removeFromKids(item) }
-		.setNegativeButton(R.string.btn_cancel, null)
-		.show()
+/** The Remove from <name>'s profile and Remove from all <level> profiles choices. */
+fun MenuBuilder.addRemoveChoices(fragment: FullDetailsFragment, item: BaseItemDto) {
+	if (!RemoveFromProfile.canRemove(item)) return
+	val activity = fragment.requireActivity()
+	for ((label, id) in RemoveFromProfile.choices(activity)) {
+		item(label) { RemoveFromProfile.handle(activity, id, item) { fragment.leaveRemovedItem(item) } }
+	}
 }
 
-private fun FullDetailsFragment.removeFromKids(item: BaseItemDto) {
-	val itemMutationRepository by inject<ItemMutationRepository>()
+/** The item is gone from this profile: refresh the lists that show it and leave its page. */
+private fun FullDetailsFragment.leaveRemovedItem(item: BaseItemDto) {
 	val navigationRepository by inject<NavigationRepository>()
 	val dataRefreshService by inject<DataRefreshService>()
 
-	lifecycleScope.launch {
-		val removed = try {
-			itemMutationRepository.removeTagAsAdministrator(item.id, ItemMutationRepository.KIDS_TAG)
-		} catch (error: ApiClientException) {
-			Timber.e(error, "Failed to remove ${item.id} from kids")
-			Toast.makeText(context, getString(R.string.kids_tag_failed, item.name), Toast.LENGTH_LONG).show()
-			return@launch
-		}
-
-		if (!removed) {
-			Toast.makeText(context, R.string.kids_remove_no_admin, Toast.LENGTH_LONG).show()
-			return@launch
-		}
-
-		Toast.makeText(context, getString(R.string.kids_tag_removed, item.name, ItemMutationRepository.KIDS_TAG), Toast.LENGTH_LONG).show()
-		// The item is no longer visible to this profile, refresh the lists that show it and leave its page
-		dataRefreshService.lastDeletedItemId = item.id
-		if (navigationRepository.canGoBack) navigationRepository.goBack()
-		else navigationRepository.navigate(Destinations.home)
-	}
+	dataRefreshService.lastDeletedItemId = item.id
+	if (navigationRepository.canGoBack) navigationRepository.goBack()
+	else navigationRepository.navigate(Destinations.home)
 }
 
 fun FullDetailsFragment.loadKidsTag() {

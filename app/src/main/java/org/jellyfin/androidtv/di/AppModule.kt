@@ -22,6 +22,7 @@ import org.jellyfin.androidtv.data.repository.CustomMessageRepositoryImpl
 import org.jellyfin.androidtv.data.repository.ExternalAppRepository
 import org.jellyfin.androidtv.data.repository.ItemMutationRepository
 import org.jellyfin.androidtv.data.repository.ItemMutationRepositoryImpl
+import org.jellyfin.androidtv.data.repository.ProfileLevelRepository
 import org.jellyfin.androidtv.data.repository.UserProfileRepository
 import org.jellyfin.androidtv.data.repository.UserProfileRepositoryImpl
 import org.jellyfin.androidtv.data.repository.NotificationsRepository
@@ -146,7 +147,8 @@ val appModule = module {
 	single<UserRepository> { UserRepositoryImpl() }
 	single<UserViewsRepository> { UserViewsRepositoryImpl(get()) }
 	single<NotificationsRepository> { NotificationsRepositoryImpl(get(), get()) }
-	single<ItemMutationRepository> { ItemMutationRepositoryImpl(get(), get(), get(), get(), get()) }
+	single<ItemMutationRepository> { ItemMutationRepositoryImpl(get(), get()) }
+	single { ProfileLevelRepository(get(), get()) }
 	single<UserProfileRepository> { UserProfileRepositoryImpl(get(), get(), get(), get()) }
 	single<CustomMessageRepository> { CustomMessageRepositoryImpl() }
 	single<NavigationRepository> { NavigationRepositoryImpl(Destinations.home) }
