@@ -11,6 +11,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import org.jellyfin.androidtv.auth.repository.SessionRepository
 import org.jellyfin.androidtv.di.KoinInitializer
+import org.jellyfin.androidtv.ui.livetv.clearTvManagerOnProfileChange
 
 @Suppress("unused")
 class SessionInitializer : Initializer<Unit> {
@@ -23,6 +24,9 @@ class SessionInitializer : Initializer<Unit> {
 		ProcessLifecycleOwner.get().lifecycleScope.launch(Dispatchers.IO) {
 			koin.get<SessionRepository>().restoreSession(destroyOnly = false)
 		}
+
+		// (Finly) The Live TV channel list belongs to the profile that loaded it
+		ProcessLifecycleOwner.get().lifecycleScope.clearTvManagerOnProfileChange(koin.get())
 
 		// (Finly) The whole app going to the background counts towards locking a PIN protected profile. Moving between
 		// the app's own screens, such as to the external player screen and back, doesn't.
