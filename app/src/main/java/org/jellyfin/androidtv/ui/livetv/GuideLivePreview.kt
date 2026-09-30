@@ -31,6 +31,7 @@ import org.jellyfin.androidtv.ui.playback.LiveTvExtractorsFactory
 import org.jellyfin.androidtv.ui.playback.PlaybackStartTiming
 import org.jellyfin.androidtv.util.profile.createDeviceProfile
 import org.jellyfin.sdk.api.client.ApiClient
+import org.jellyfin.sdk.api.client.exception.InvalidStatusException
 import org.jellyfin.sdk.api.client.extensions.mediaInfoApi
 import org.jellyfin.sdk.api.client.extensions.videosApi
 import org.jellyfin.sdk.model.ServerVersion
@@ -54,6 +55,7 @@ class GuideLivePreview(
 	private val scope: LifecycleCoroutineScope,
 	private val playerView: PlayerView,
 	private val placeholder: View,
+	private val offAirMessage: View,
 ) {
 	private val api = KoinJavaComponent.get<ApiClient>(ApiClient::class.java)
 	private val userPreferences = KoinJavaComponent.get<UserPreferences>(UserPreferences::class.java)
@@ -90,6 +92,7 @@ class GuideLivePreview(
 		}
 		playerView.visibility = View.INVISIBLE
 		placeholder.visibility = View.VISIBLE
+		offAirMessage.visibility = View.GONE
 		closeLiveStream()
 		previewChannel = null
 	}
@@ -114,7 +117,7 @@ class GuideLivePreview(
 		PlaybackStartTiming.start("Guide preview $channelId")
 
 		openJob = scope.launch {
-			val source = runCatching {
+			val result = runCatching {
 				withContext(Dispatchers.IO) {
 					api.mediaInfoApi.getPostedPlaybackInfo(
 						itemId = channelId,
@@ -127,7 +130,14 @@ class GuideLivePreview(
 						)
 					).content.mediaSources.firstOrNull()
 				}
-			}.onFailure { Timber.w(it, "Unable to open guide preview for %s", channelId) }.getOrNull()
+			}.onFailure { Timber.w(it, "Unable to open guide preview for %s", channelId) }
+			val source = result.getOrNull()
+
+			// The server tuned the channel and found nothing being broadcast, say so instead of an empty preview
+			val error = result.exceptionOrNull()
+			if (error is InvalidStatusException && error.status == 503 && previewChannel == channelId) {
+				offAirMessage.visibility = View.VISIBLE
+			}
 
 			if (source == null || previewChannel != channelId) {
 				source?.liveStreamId?.let(::closeLiveStream)

@@ -128,7 +128,7 @@ public class LiveTvGuideFragment extends Fragment implements LiveTvGuide, View.O
         mFilterStatus.setTextColor(Color.GRAY);
         mInfoRow = binding.infoRow;
         mImage = binding.programImage;
-        livePreview = new GuideLivePreview(requireContext(), LifecycleOwnerKt.getLifecycleScope(getViewLifecycleOwner()), binding.guidePreview, binding.programImage);
+        livePreview = new GuideLivePreview(requireContext(), LifecycleOwnerKt.getLifecycleScope(getViewLifecycleOwner()), binding.guidePreview, binding.programImage, binding.guidePreviewMessage);
         mChannels = binding.channels;
         mTimeline = binding.timeline;
         mProgramRows = binding.programRows;

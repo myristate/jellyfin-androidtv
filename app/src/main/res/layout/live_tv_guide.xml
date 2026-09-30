@@ -112,6 +112,18 @@
             app:resize_mode="fit"
             app:shutter_background_color="@android:color/black"
             app:use_controller="false" />
+
+        <TextView
+            android:id="@+id/guidePreviewMessage"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="#CC000000"
+            android:gravity="center"
+            android:padding="6sp"
+            android:text="@string/msg_live_tv_off_air_short"
+            android:textColor="@android:color/white"
+            android:textSize="13sp"
+            android:visibility="gone" />
     </FrameLayout>
 
     <TextView
