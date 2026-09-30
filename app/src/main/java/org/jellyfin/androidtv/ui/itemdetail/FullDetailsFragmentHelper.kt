@@ -192,6 +192,9 @@ fun FullDetailsFragment.loadKidsTag() {
 			kidsButton?.isActivated = itemMutationRepository.hasTag(itemId, ItemMutationRepository.KIDS_TAG)
 		} catch (error: ApiClientException) {
 			Timber.w(error, "Failed to get tags of item $itemId")
+		} catch (error: IllegalArgumentException) {
+			// An unexpected body, kotlinx.serialization's SerializationException is an IllegalArgumentException
+			Timber.w(error, "Failed to read tags of item $itemId")
 		}
 	}
 }
@@ -208,7 +211,9 @@ fun FullDetailsFragment.toggleKidsTag() {
 
 			val message = if (tagged) R.string.kids_tag_added else R.string.kids_tag_removed
 			Toast.makeText(context, getString(message, item.name, ItemMutationRepository.KIDS_TAG), Toast.LENGTH_LONG).show()
-		} catch (error: ApiClientException) {
+		} catch (error: Exception) {
+			// The server refused, couldn't be reached or answered with something unexpected
+			if (error !is ApiClientException && error !is IllegalArgumentException) throw error
 			Timber.e(error, "Failed to change tags of item ${item.id}")
 			Toast.makeText(context, getString(R.string.kids_tag_failed, item.name), Toast.LENGTH_LONG).show()
 		}
