@@ -33,7 +33,7 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.jellyfin.androidtv.R
-import org.jellyfin.androidtv.auth.ProfilePin
+import org.jellyfin.androidtv.auth.repository.PIN_LENGTH
 import org.jellyfin.androidtv.auth.repository.AuthenticationRepository
 import org.jellyfin.androidtv.auth.repository.PinChangeResult
 import org.jellyfin.androidtv.auth.repository.SessionRepository
@@ -217,7 +217,7 @@ fun SettingsAuthenticationPinScreen() {
 			}
 
 			is PinStep.NewPin -> item {
-				val newPinTitle = stringResource(R.string.pin_new, ProfilePin.LENGTH)
+				val newPinTitle = stringResource(R.string.pin_new, PIN_LENGTH)
 				val confirmTitle = stringResource(R.string.pin_confirm)
 				val mismatchMessage = stringResource(R.string.pin_mismatch)
 

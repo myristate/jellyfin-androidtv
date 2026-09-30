@@ -34,7 +34,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.jellyfin.androidtv.R
-import org.jellyfin.androidtv.auth.ProfilePin
+import org.jellyfin.androidtv.auth.repository.PIN_LENGTH
 import org.jellyfin.androidtv.ui.base.Icon
 import org.jellyfin.androidtv.ui.base.LocalTextStyle
 import org.jellyfin.androidtv.ui.base.Text
@@ -56,7 +56,7 @@ private val digitKeys = mapOf(
 
 
 /**
- * A number pad for entering a [ProfilePin], usable with the D-pad or the number keys on a remote. [onPinEntered]
+ * A number pad for entering a profile PIN, usable with the D-pad or the number keys on a remote. [onPinEntered]
  * is called as soon as the last digit is entered, after which the pad is cleared for the next attempt. While not
  * [enabled] input is ignored, the buttons stay focusable so the remote does not lose focus.
  */
@@ -72,9 +72,9 @@ fun PinPad(
 	val color = LocalTextStyle.current.color.takeOrElse { Color.White }
 
 	fun type(digit: Char) {
-		if (!enabled || digits.length >= ProfilePin.LENGTH) return
+		if (!enabled || digits.length >= PIN_LENGTH) return
 		digits += digit
-		if (digits.length == ProfilePin.LENGTH) {
+		if (digits.length == PIN_LENGTH) {
 			val pin = digits
 			digits = ""
 			onPinEntered(pin)
@@ -124,7 +124,7 @@ private fun Modifier.onDigitKeys(onDigit: (Char) -> Unit, onDelete: () -> Unit) 
 
 @Composable
 private fun PinDots(filled: Int, color: Color) = Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-	repeat(ProfilePin.LENGTH) { index ->
+	repeat(PIN_LENGTH) { index ->
 		Box(
 			modifier = Modifier
 				.size(14.dp)
