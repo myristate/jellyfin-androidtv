@@ -11,6 +11,7 @@ import androidx.lifecycle.LifecycleOwner;
 import org.jellyfin.androidtv.R;
 import org.jellyfin.androidtv.ui.itemhandling.KidsViewMenus;
 import org.jellyfin.androidtv.ui.itemhandling.RemoveFromProfile;
+import org.jellyfin.androidtv.ui.itemhandling.ReportProblem;
 import org.jellyfin.androidtv.constant.CustomMessage;
 import org.jellyfin.androidtv.data.repository.CustomMessageRepository;
 import org.jellyfin.androidtv.data.repository.ItemMutationRepository;
@@ -253,6 +254,7 @@ public class KeyProcessor {
 
             order = RemoveFromProfile.addTo(menu.getMenu(), order, item, activity);
             order = KidsViewMenus.addTo(menu.getMenu(), order, item, activity);
+            order = ReportProblem.addTo(menu.getMenu(), order, item, activity);
             // Pick up level changes for next time
             RemoveFromProfile.refreshLevels(activity);
         }
@@ -294,6 +296,11 @@ public class KeyProcessor {
             // Refreshing the item finds it gone and takes its card away
             if (RemoveFromProfile.handle(activity, menuItem.getItemId(), item, () ->
                     customMessageRepository.getValue().pushMessage(CustomMessage.RefreshCurrentItem.INSTANCE))) {
+                return true;
+            }
+
+            if (menuItem.getItemId() == ReportProblem.MENU_REPORT) {
+                ReportProblem.show(activity, activity.getCurrentFocus(), item);
                 return true;
             }
 

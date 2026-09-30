@@ -736,6 +736,14 @@
     <string name="kids_view_off">Off</string>
     <string name="kids_view_level">All %1$s profiles</string>
     <string name="kids_view_profiles">Children\'s profiles…</string>
+    <string name="report_problem">Report a problem</string>
+    <string name="report_problem_video">Picture problem</string>
+    <string name="report_problem_audio">Sound problem</string>
+    <string name="report_problem_language">Plays in the wrong language</string>
+    <string name="report_problem_subtitles">Subtitle problem</string>
+    <string name="report_problem_other">Something else</string>
+    <string name="report_problem_sent">Thanks, the problem has been reported</string>
+    <string name="report_problem_failed">Couldn\'t send the report</string>
     <string name="kids">Kids</string>
     <string name="kids_tag_added">%1$s is tagged \"%2$s\" and shows on kids\' profiles</string>
     <string name="kids_tag_removed">%1$s is no longer tagged \"%2$s\"</string>

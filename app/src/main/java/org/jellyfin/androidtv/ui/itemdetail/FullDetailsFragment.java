@@ -1143,6 +1143,9 @@ public class FullDetailsFragment extends Fragment implements RecordingIndicatorV
     int collapsedOptions = 0;
 
     void showMoreButtonIfNeeded() {
+        // The menu has entries of its own, like Report a problem, so it shows even with nothing collapsed into it
+        boolean menuHasOwnItems = FullDetailsFragmentHelperKt.detailsMenuHasOwnItems(this);
+        if (menuHasOwnItems) moreButton.setVisibility(View.VISIBLE);
         int visibleOptions = mDetailsOverviewRow.getVisibleActions();
 
         List<TextUnderButton> actionsList = new ArrayList<>();
@@ -1172,7 +1175,7 @@ public class FullDetailsFragment extends Fragment implements RecordingIndicatorV
                 collapsedOptions++;
             }
         }
-        moreButton.setVisibility(collapsedOptions > 0 ? View.VISIBLE : View.GONE);
+        moreButton.setVisibility(collapsedOptions > 0 || menuHasOwnItems ? View.VISIBLE : View.GONE);
     }
 
     RecordPopup mRecordPopup;

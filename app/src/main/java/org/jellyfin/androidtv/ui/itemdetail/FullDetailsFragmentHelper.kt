@@ -20,6 +20,7 @@ import org.jellyfin.androidtv.util.TimeUtils
 import org.jellyfin.androidtv.util.apiclient.getSeriesOverview
 import org.jellyfin.androidtv.ui.itemhandling.KidsViewMenus
 import org.jellyfin.androidtv.ui.itemhandling.RemoveFromProfile
+import org.jellyfin.androidtv.ui.itemhandling.ReportProblem
 import org.jellyfin.androidtv.util.MenuBuilder
 import org.jellyfin.androidtv.util.popupMenu
 import org.jellyfin.androidtv.util.sdk.TrailerUtils.getExternalTrailerIntent
@@ -108,6 +109,10 @@ fun FullDetailsFragment.showDetailsMenu(
 	// Restricted profiles have their own Remove button
 	if (!showRemoveButton()) addRemoveChoices(this@showDetailsMenu, baseItemDto)
 
+	if (ReportProblem.canReport(baseItemDto)) {
+		item(getString(R.string.report_problem)) { ReportProblem.show(requireActivity(), view?.findFocus(), baseItemDto) }
+	}
+
 }.showIfNotEmpty()
 
 private val kidsTaggableTypes = setOf(
@@ -139,6 +144,10 @@ fun FullDetailsFragment.showRemoveButton(): Boolean {
 
 	return !policy.isAdministrator && restricted && RemoveFromProfile.canRemove(mBaseItem)
 }
+
+/** Whether the details menu has entries besides the buttons collapsed into it. */
+fun FullDetailsFragment.detailsMenuHasOwnItems(): Boolean = ReportProblem.canReport(mBaseItem) ||
+	(!showRemoveButton() && RemoveFromProfile.canRemove(mBaseItem))
 
 fun FullDetailsFragment.showRemoveMenu(anchor: View) = popupMenu(requireContext(), anchor) {
 	addRemoveChoices(this@showRemoveMenu, mBaseItem)
