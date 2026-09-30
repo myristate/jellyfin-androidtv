@@ -33,6 +33,7 @@ import org.jellyfin.androidtv.util.apiclient.Response;
 import org.jellyfin.androidtv.util.profile.DeviceProfileKt;
 import org.jellyfin.androidtv.util.sdk.compat.JavaCompat;
 import org.jellyfin.sdk.api.client.ApiClient;
+import org.jellyfin.sdk.api.client.exception.InvalidStatusException;
 import org.jellyfin.sdk.model.ServerVersion;
 import org.jellyfin.sdk.model.api.BaseItemDto;
 import org.jellyfin.sdk.model.api.BaseItemKind;
@@ -624,9 +625,18 @@ public class PlaybackController implements PlaybackControllerNotifiable {
     private void handlePlaybackInfoError(Exception exception) {
         Timber.e(exception, "Error getting playback stream info");
         if (mFragment == null) return;
+        // PlaybackManager hands errors over wrapped
+        Throwable cause = exception != null && exception.getCause() != null ? exception.getCause() : exception;
+        if (isLiveTv && cause instanceof InvalidStatusException && ((InvalidStatusException) cause).getStatus() == 503) {
+            // The server tuned the channel and found nothing being broadcast, for example a part time channel that is
+            // off air. Trying again won't help.
+            Utils.showToast(mFragment.getContext(), mFragment.getString(R.string.msg_live_tv_off_air));
+            mFragment.closePlayer();
+            return;
+        }
         if (retryLiveTvStart()) return;
-        if (exception instanceof PlaybackException) {
-            PlaybackException ex = (PlaybackException) exception;
+        if (cause instanceof PlaybackException) {
+            PlaybackException ex = (PlaybackException) cause;
             switch (ex.getErrorCode()) {
                 case NOT_ALLOWED:
                     Utils.showToast(mFragment.getContext(), mFragment.getString(R.string.msg_playback_not_allowed));
