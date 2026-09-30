@@ -77,7 +77,8 @@ interface AuthenticationRepository {
 
 	/**
 	 * Set the signed in user's PIN on the server, or remove it with a null [pin]. The server needs [current], the user's
-	 * current PIN or password, when they have either.
+	 * current PIN or password, when they have either. A wrong current PIN counts towards the same lockout as signing in
+	 * with a wrong PIN, see [pinLockoutSeconds].
 	 */
 	suspend fun setPin(current: String, pin: String?): PinChangeResult
 
@@ -98,6 +99,9 @@ data class SignInOptions(
 enum class PinChangeResult {
 	SAVED,
 	WRONG_CURRENT,
+
+	/** Too many wrong PINs, the current PIN can't be tried until the lockout is over. */
+	LOCKED_OUT,
 	FAILED,
 }
 
@@ -112,6 +116,16 @@ private const val PIN_ATTEMPTS_BEFORE_LOCKOUT = 5
 
 // Lockout after the 5th wrong PIN, then after each further one
 private val PIN_LOCKOUT_SECONDS = longArrayOf(30, 60, 120, 300, 900, 1800)
+
+/**
+ * When a PIN may be tried again after [failures] wrong PINs in a row (epoch milliseconds), 0 while it may be tried.
+ * The same steps as the server's.
+ */
+internal fun pinLockedUntil(failures: Int, now: Long = System.currentTimeMillis()): Long {
+	val lockouts = failures - PIN_ATTEMPTS_BEFORE_LOCKOUT
+	return if (lockouts < 0) 0L
+	else now + PIN_LOCKOUT_SECONDS[lockouts.coerceAtMost(PIN_LOCKOUT_SECONDS.lastIndex)] * 1000
+}
 
 class AuthenticationRepositoryImpl(
 	private val jellyfin: Jellyfin,
@@ -169,15 +183,16 @@ class AuthenticationRepositoryImpl(
 			when (err.status) {
 				HttpURLConnection.HTTP_UNAUTHORIZED -> {
 					Timber.w("Wrong PIN entered for user ${user.id}")
-					recordPinFailure(server.id, user.id, serverLocked = false)
+					recordPinFailure(server.id, user.id)
 					emit(InvalidPinState)
 				}
 
-				// The server refuses PINs for a while after too many wrong ones
+				// A wrong PIN is a 401 like a wrong password. A 403 means the server refused to sign the profile in at
+				// all: outside its allowed hours, turned off, or PIN sign in paused after too many wrong PINs. The
+				// server doesn't say which, so don't count it as a wrong PIN and let the PIN pad explain (Finly).
 				HttpURLConnection.HTTP_FORBIDDEN -> {
-					Timber.w("Server refused PIN sign in for user ${user.id}")
-					recordPinFailure(server.id, user.id, serverLocked = true)
-					emit(InvalidPinState)
+					Timber.w("Server refused to sign in user ${user.id}")
+					emit(ApiClientErrorLoginState(err))
 				}
 
 				else -> emit(ApiClientErrorLoginState(err))
@@ -198,16 +213,19 @@ class AuthenticationRepositoryImpl(
 
 	/**
 	 * Count a wrong PIN the same way as the server: after [PIN_ATTEMPTS_BEFORE_LOCKOUT] the PIN is locked for a while,
-	 * and each further wrong PIN locks it for longer. When the server already refuses PINs ([serverLocked]), lock for at
-	 * least the first period. Stored with the user, so restarting the app doesn't reset it.
+	 * and each further wrong PIN locks it for longer. Stored with the user, so restarting the app doesn't reset it.
 	 */
-	private fun recordPinFailure(serverId: UUID, userId: UUID, serverLocked: Boolean) {
+	private fun recordPinFailure(serverId: UUID, userId: UUID) {
 		val storeUser = authenticationStore.getUser(serverId, userId) ?: return
-		val failures = if (serverLocked) maxOf(storeUser.pinFailures + 1, PIN_ATTEMPTS_BEFORE_LOCKOUT) else storeUser.pinFailures + 1
-		val lockouts = failures - PIN_ATTEMPTS_BEFORE_LOCKOUT
-		val lockedUntil = if (lockouts < 0) 0L
-		else System.currentTimeMillis() + PIN_LOCKOUT_SECONDS[lockouts.coerceAtMost(PIN_LOCKOUT_SECONDS.lastIndex)] * 1000
-		authenticationStore.putUser(serverId, userId, storeUser.copy(pinFailures = failures, pinLockedUntil = lockedUntil))
+		val failures = storeUser.pinFailures + 1
+		authenticationStore.putUser(serverId, userId, storeUser.copy(pinFailures = failures, pinLockedUntil = pinLockedUntil(failures)))
+	}
+
+	private fun resetPinFailures(serverId: UUID, userId: UUID) {
+		val storeUser = authenticationStore.getUser(serverId, userId) ?: return
+		if (storeUser.pinFailures != 0 || storeUser.pinLockedUntil != 0L) {
+			authenticationStore.putUser(serverId, userId, storeUser.copy(pinFailures = 0, pinLockedUntil = 0))
+		}
 	}
 
 	override fun pinLockoutSeconds(serverId: UUID, userId: UUID): Long {
@@ -235,6 +253,9 @@ class AuthenticationRepositoryImpl(
 			emit(ApiClientErrorLoginState(err))
 			return@flow
 		}
+
+		// Signing in with the password lets the server take PINs again, start counting afresh here too (Finly)
+		result.user?.id?.let { userId -> resetPinFailures(server.id, userId) }
 
 		emitAll(authenticateAuthenticationResult(server, result))
 	}.flowOn(Dispatchers.IO)
@@ -368,6 +389,11 @@ class AuthenticationRepositoryImpl(
 
 	override suspend fun setPin(current: String, pin: String?): PinChangeResult = withContext(Dispatchers.IO) {
 		val session = sessionRepository.currentSession.value ?: return@withContext PinChangeResult.FAILED
+		// The current PIN is checked like signing in with it, so it's throttled the same way and can't be guessed here
+		// instead (Finly). A password isn't a PIN, the server throttles those itself.
+		val currentIsPin = isPinFormat(current) && hasPin(session.serverId, session.userId)
+		if (currentIsPin && pinLockoutSeconds(session.serverId, session.userId) > 0) return@withContext PinChangeResult.LOCKED_OUT
+
 		try {
 			userApiClient.request(
 				method = HttpMethod.POST,
@@ -376,10 +402,20 @@ class AuthenticationRepositoryImpl(
 				requestBody = UpdateUserPinBody(currentPw = current, newPin = pin, resetPin = pin == null),
 			)
 			authenticationStore.rememberServerPin(session.serverId, session.userId, pin != null)
+			resetPinFailures(session.serverId, session.userId)
 			PinChangeResult.SAVED
 		} catch (err: InvalidStatusException) {
 			Timber.w(err, "Unable to change the PIN")
-			if (err.status == HttpURLConnection.HTTP_FORBIDDEN) PinChangeResult.WRONG_CURRENT else PinChangeResult.FAILED
+			when {
+				err.status != HttpURLConnection.HTTP_FORBIDDEN -> PinChangeResult.FAILED
+				currentIsPin -> {
+					recordPinFailure(session.serverId, session.userId)
+					if (pinLockoutSeconds(session.serverId, session.userId) > 0) PinChangeResult.LOCKED_OUT
+					else PinChangeResult.WRONG_CURRENT
+				}
+
+				else -> PinChangeResult.WRONG_CURRENT
+			}
 		} catch (err: ApiClientException) {
 			Timber.w(err, "Unable to change the PIN")
 			PinChangeResult.FAILED

@@ -15,6 +15,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -29,6 +30,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.jellyfin.androidtv.R
 import org.jellyfin.androidtv.auth.ProfilePin
@@ -49,6 +51,7 @@ import org.jellyfin.androidtv.ui.composable.PinPad
 import org.jellyfin.androidtv.ui.navigation.focus.focusKey
 import org.jellyfin.androidtv.ui.settings.composable.SettingsColumn
 import org.koin.compose.koinInject
+import kotlin.time.Duration.Companion.seconds
 
 private sealed interface PinStep {
 	data object Menu : PinStep
@@ -90,6 +93,18 @@ fun SettingsAuthenticationPinScreen() {
 	var message by remember { mutableStateOf<String?>(null) }
 	val wrongCurrentMessage = stringResource(R.string.pin_current_wrong)
 
+	// Wrong current PINs are throttled like signing in with a wrong PIN, so the PIN can't be guessed here instead
+	var lockoutSeconds by remember { mutableLongStateOf(0L) }
+	fun refreshLockout() {
+		lockoutSeconds = authenticationRepository.pinLockoutSeconds(currentSession.serverId, currentSession.userId)
+	}
+	LaunchedEffect(lockoutSeconds > 0) {
+		while (lockoutSeconds > 0) {
+			delay(1.seconds)
+			refreshLockout()
+		}
+	}
+
 	fun save(current: String, pin: String?) {
 		step = PinStep.Saving
 		scope.launch {
@@ -104,6 +119,13 @@ fun SettingsAuthenticationPinScreen() {
 				PinChangeResult.WRONG_CURRENT -> {
 					step = PinStep.Current(remove = pin == null)
 					message = wrongCurrentMessage
+					refreshLockout()
+				}
+
+				PinChangeResult.LOCKED_OUT -> {
+					step = PinStep.Current(remove = pin == null)
+					message = null
+					refreshLockout()
 				}
 
 				PinChangeResult.FAILED -> {
@@ -117,6 +139,7 @@ fun SettingsAuthenticationPinScreen() {
 
 	fun start(remove: Boolean) {
 		message = null
+		refreshLockout()
 		step = when {
 			options.hasPin || options.hasPassword -> PinStep.Current(remove)
 			remove -> {
@@ -169,9 +192,16 @@ fun SettingsAuthenticationPinScreen() {
 
 			is PinStep.Current -> item {
 				if (options.hasPin) {
+					val lockoutMessage = when {
+						lockoutSeconds > 60 -> stringResource(R.string.pin_locked_out_minutes, ((lockoutSeconds + 59) / 60).toInt())
+						lockoutSeconds > 0 -> stringResource(R.string.pin_locked_out, lockoutSeconds.toInt())
+						else -> null
+					}
+
 					PinPad(
 						title = stringResource(R.string.pin_current),
-						message = message,
+						message = lockoutMessage ?: message,
+						enabled = lockoutSeconds == 0L,
 						modifier = Modifier
 							.fillMaxWidth()
 							.padding(vertical = 8.dp),

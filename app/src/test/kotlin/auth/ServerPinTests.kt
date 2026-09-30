@@ -20,6 +20,16 @@ class ServerPinTests : FunSpec({
 		parseHasPin("[]") shouldBe null
 	}
 
+	test("pinLockedUntil() gives five free tries, then longer lockouts like the server") {
+		val now = 1_000_000L
+		pinLockedUntil(0, now) shouldBe 0L
+		pinLockedUntil(4, now) shouldBe 0L
+		pinLockedUntil(5, now) shouldBe now + 30_000
+		pinLockedUntil(6, now) shouldBe now + 60_000
+		pinLockedUntil(10, now) shouldBe now + 1_800_000
+		pinLockedUntil(50, now) shouldBe now + 1_800_000
+	}
+
 	test("isPinFormat() only accepts four digits") {
 		isPinFormat("1234") shouldBe true
 		isPinFormat("0000") shouldBe true

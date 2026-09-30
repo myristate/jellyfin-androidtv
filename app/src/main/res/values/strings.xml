@@ -706,6 +706,7 @@
     <string name="pin_current_wrong">That isn\'t right, try again</string>
     <string name="pin_continue">Continue</string>
     <string name="pin_locked_out_minutes">Too many wrong PINs, try again in %1$d minutes</string>
+    <string name="pin_sign_in_refused">The server won\'t let %1$s sign in right now. The profile may be outside its allowed hours or turned off, or PIN sign-in may be paused after too many wrong PINs. Try the password, or ask a parent.</string>
     <string name="pin_delete_digit">Delete digit</string>
     <string name="pin_profile">Profile PIN</string>
     <string name="pin_profile_enabled">On, asks for a PIN before opening %1$s</string>

@@ -47,7 +47,9 @@ import org.jellyfin.androidtv.ui.base.button.Button
 import org.jellyfin.androidtv.ui.composable.PinPad
 import org.jellyfin.androidtv.ui.startup.StartupViewModel
 import org.jellyfin.androidtv.util.createBundle
+import org.jellyfin.sdk.api.client.exception.InvalidStatusException
 import org.jellyfin.sdk.model.serializer.toUUIDOrNull
+import java.net.HttpURLConnection
 import org.koin.androidx.viewmodel.ext.android.activityViewModel
 import kotlin.time.Duration.Companion.seconds
 
@@ -177,8 +179,16 @@ class UserPinFragment : Fragment() {
 					}
 				}
 
-				ServerUnavailableState,
-				is ApiClientErrorLoginState -> pinState = PinEntryState(message = getString(R.string.server_connection_failed))
+				ServerUnavailableState -> pinState = PinEntryState(message = getString(R.string.server_connection_failed))
+
+				is ApiClientErrorLoginState -> {
+					// The server refused to sign the profile in at all, for example outside its allowed hours (Finly)
+					val refused = (state.error as? InvalidStatusException)?.status == HttpURLConnection.HTTP_FORBIDDEN
+					pinState = PinEntryState(
+						message = if (refused) getString(R.string.pin_sign_in_refused, user.name)
+						else getString(R.string.server_connection_failed)
+					)
+				}
 
 				is ServerVersionNotSupported -> pinState = PinEntryState(
 					message = getString(
@@ -188,7 +198,8 @@ class UserPinFragment : Fragment() {
 					)
 				)
 			}
-		}.launchIn(lifecycleScope)
+			// The view's scope: the lockout below updates the view, which is gone once the fragment's view is destroyed
+		}.launchIn(viewLifecycleOwner.lifecycleScope)
 	}
 
 	private fun startLockout(seconds: Long) {
