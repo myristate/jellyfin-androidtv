@@ -149,8 +149,8 @@ val appModule = module {
 	single<UserViewsRepository> { UserViewsRepositoryImpl(get()) }
 	single<NotificationsRepository> { NotificationsRepositoryImpl(get(), get()) }
 	single<ItemMutationRepository> { ItemMutationRepositoryImpl(get(), get()) }
-	single { ProfileLevelRepository(get(), get()) }
-	single { KidsViewRepository(get(), get()) }
+	single { ProfileLevelRepository(get(), get(), get()) }
+	single { KidsViewRepository(get(), get(), get()) }
 	single<UserProfileRepository> { UserProfileRepositoryImpl(get(), get(), get(), get()) }
 	single<CustomMessageRepository> { CustomMessageRepositoryImpl() }
 	single<NavigationRepository> { NavigationRepositoryImpl(Destinations.home) }

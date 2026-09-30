@@ -10,17 +10,21 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import org.jellyfin.androidtv.R
+import org.jellyfin.androidtv.auth.repository.UserRepository
 import org.jellyfin.androidtv.data.repository.KidsViewBadge
 import org.jellyfin.androidtv.data.repository.KidsViewRepository
+import org.jellyfin.androidtv.data.repository.KidsViewTarget
 import org.jellyfin.sdk.model.api.BaseItemDto
 import org.jellyfin.sdk.model.api.BaseItemKind
 import org.koin.compose.koinInject
+import java.util.UUID
 
 private val badgeTypes = setOf(
 	BaseItemKind.MOVIE,
@@ -36,20 +40,38 @@ private val badgeColor = Color(0xFF00A4DC)
 
 /**
  * The kids view badge (Finly): while a parent has the kids view on, marks the items the chosen profile or level can
- * see, faintly when only some of the level's profiles can.
+ * see, faintly when only some of the level's profiles can. Only administrators have the kids view.
  */
 @Composable
 fun KidsViewBadge(item: BaseItemDto, modifier: Modifier = Modifier) {
 	if (item.type !in badgeTypes) return
 
+	val userRepository = koinInject<UserRepository>()
+	val user by userRepository.currentUser.collectAsState()
+	if (user?.policy?.isAdministrator != true) return
+
 	val kidsView = koinInject<KidsViewRepository>()
 	val target by kidsView.target.collectAsState()
-	val access by kidsView.access.collectAsState()
+	// Nothing below runs, nor watches who can see what, while the kids view is off
 	val current = target ?: return
 
-	val badge = kidsView.badge(item.id, current, access)
-	LaunchedEffect(item.id, current, badge == null) {
-		if (badge == null) kidsView.request(item.id)
+	KidsViewBadgeFor(item.id, current, kidsView, modifier)
+}
+
+@Composable
+private fun KidsViewBadgeFor(
+	itemId: UUID,
+	target: KidsViewTarget,
+	kidsView: KidsViewRepository,
+	modifier: Modifier,
+) {
+	// Only this item's entry, so answers arriving for other cards don't update this one
+	val accessFlow = remember(itemId) { kidsView.accessFlowOf(itemId) }
+	val visibleTo by accessFlow.collectAsState(initial = kidsView.accessOf(itemId))
+
+	val badge = kidsView.badge(target, visibleTo)
+	LaunchedEffect(itemId, target, badge == null) {
+		if (badge == null) kidsView.request(itemId)
 	}
 	if (badge == null || badge == KidsViewBadge.NONE) return
 

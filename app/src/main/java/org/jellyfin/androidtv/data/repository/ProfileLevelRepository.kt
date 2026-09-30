@@ -1,6 +1,12 @@
 package org.jellyfin.androidtv.data.repository
 
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -8,6 +14,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import org.jellyfin.androidtv.auth.repository.SessionRepository
 import org.jellyfin.androidtv.auth.repository.UserRepository
 import org.jellyfin.sdk.api.client.ApiClient
 import org.jellyfin.sdk.api.client.HttpMethod
@@ -32,8 +39,27 @@ data class ProfileLevel(
 class ProfileLevelRepository(
 	private val api: ApiClient,
 	private val userRepository: UserRepository,
+	sessionRepository: SessionRepository,
 ) {
 	private val json = Json { ignoreUnknownKeys = true }
+	private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+	init {
+		// What was loaded belongs to the signed in profile (Finly)
+		scope.launch {
+			sessionRepository.currentSession
+				.map { it?.userId }
+				.distinctUntilChanged()
+				.drop(1)
+				.collect { reset() }
+		}
+	}
+
+	/** Forget the loaded levels, for example when another profile signs in. */
+	fun reset() {
+		levels = emptyList()
+		ownLevelId = null
+	}
 
 	/** The levels, as last loaded by [refresh]. */
 	@Volatile
@@ -52,6 +78,9 @@ class ProfileLevelRepository(
 			ownLevelId = me["Policy"]?.jsonObject?.get("ProfileLevelId")?.jsonPrimitive?.contentOrNull?.normalized()
 		} catch (err: ApiClientException) {
 			Timber.w(err, "Unable to load profile levels")
+		} catch (err: IllegalArgumentException) {
+			// An unexpected body, kotlinx.serialization's SerializationException is an IllegalArgumentException
+			Timber.w(err, "Unable to read profile levels")
 		}
 	}
 
