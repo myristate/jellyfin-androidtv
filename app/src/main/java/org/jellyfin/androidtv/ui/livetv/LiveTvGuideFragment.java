@@ -24,6 +24,7 @@ import androidx.annotation.Nullable;
 import androidx.core.content.ContextCompat;
 import androidx.fragment.app.Fragment;
 import androidx.lifecycle.Lifecycle;
+import androidx.lifecycle.LifecycleOwnerKt;
 
 import org.jellyfin.androidtv.R;
 import org.jellyfin.androidtv.constant.CustomMessage;
@@ -85,6 +86,7 @@ public class LiveTvGuideFragment extends Fragment implements LiveTvGuide, View.O
     private View mResetButton;
 
     BaseItemDto mSelectedProgram;
+    private GuideLivePreview livePreview;
     RelativeLayout mSelectedProgramView;
 
     private List<BaseItemDto> mAllChannels;
@@ -126,6 +128,7 @@ public class LiveTvGuideFragment extends Fragment implements LiveTvGuide, View.O
         mFilterStatus.setTextColor(Color.GRAY);
         mInfoRow = binding.infoRow;
         mImage = binding.programImage;
+        livePreview = new GuideLivePreview(requireContext(), LifecycleOwnerKt.getLifecycleScope(getViewLifecycleOwner()), binding.guidePreview, binding.programImage);
         mChannels = binding.channels;
         mTimeline = binding.timeline;
         mProgramRows = binding.programRows;
@@ -256,6 +259,7 @@ public class LiveTvGuideFragment extends Fragment implements LiveTvGuide, View.O
 
         mFilters.load();
         doLoad();
+        if (livePreview != null) livePreview.resume();
     }
 
     protected void doLoad() {
@@ -275,6 +279,18 @@ public class LiveTvGuideFragment extends Fragment implements LiveTvGuide, View.O
         }
         if (mDetailPopup != null) {
             mDetailPopup.dismiss();
+        }
+        // Closing the preview's stream here still lets full screen playback share it, the server keeps it briefly
+        if (livePreview != null) livePreview.stop();
+    }
+
+    @Override
+    public void onDestroyView() {
+        super.onDestroyView();
+
+        if (livePreview != null) {
+            livePreview.release();
+            livePreview = null;
         }
     }
 
@@ -789,6 +805,13 @@ public class LiveTvGuideFragment extends Fragment implements LiveTvGuide, View.O
 
     public void setSelectedProgram(RelativeLayout programView) {
         mSelectedProgramView = programView;
+        if (livePreview != null) {
+            if (programView instanceof ProgramGridCell && ((ProgramGridCell) programView).getProgram() != null) {
+                livePreview.onChannelHighlighted(((ProgramGridCell) programView).getProgram().getChannelId());
+            } else if (programView instanceof GuideChannelHeader && ((GuideChannelHeader) programView).getChannel() != null) {
+                livePreview.onChannelHighlighted(((GuideChannelHeader) programView).getChannel().getId());
+            }
+        }
         if (mSelectedProgramView instanceof ProgramGridCell) {
             mSelectedProgram = ((ProgramGridCell)mSelectedProgramView).getProgram();
             mHandler.removeCallbacks(detailUpdateTask);
