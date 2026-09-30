@@ -93,7 +93,7 @@ public class BrowseGridFragment extends Fragment implements View.OnKeyListener {
     private boolean justLoaded = true;
     private PosterSize mPosterSizeSetting = PosterSize.MED;
     private ImageType mImageType = ImageType.POSTER;
-    private GridDirection mGridDirection = GridDirection.HORIZONTAL;
+    private GridDirection mGridDirection = GridDirection.VERTICAL;
     private boolean determiningPosterSize = false;
 
     private UUID mParentId;
