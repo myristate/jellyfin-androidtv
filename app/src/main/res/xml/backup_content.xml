@@ -1,9 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <full-backup-content>
-    <!-- Stored servers & users (without access tokens) -->
-    <include
-        domain="file"
-        path="authentication_store.json" />
+    <!-- Not authentication_store.json (Finly): besides the stored servers and users it holds their access
+         tokens, which must not leave the device. Only the files included here are backed up. -->
 
     <!-- UserPreferences -->
     <include
