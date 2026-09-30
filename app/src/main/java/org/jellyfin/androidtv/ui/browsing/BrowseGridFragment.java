@@ -2,6 +2,8 @@ package org.jellyfin.androidtv.ui.browsing;
 
 import static org.koin.java.KoinJavaComponent.inject;
 
+import org.koin.java.KoinJavaComponent;
+
 import android.os.Bundle;
 import android.os.Handler;
 import android.util.DisplayMetrics;
@@ -41,6 +43,7 @@ import org.jellyfin.androidtv.constant.QueryType;
 import org.jellyfin.androidtv.data.model.FilterOptions;
 import org.jellyfin.androidtv.data.querying.GetUserViewsRequest;
 import org.jellyfin.androidtv.data.repository.CustomMessageRepository;
+import org.jellyfin.androidtv.data.repository.KidsViewRepository;
 import org.jellyfin.androidtv.data.service.BackgroundService;
 import org.jellyfin.androidtv.databinding.HorizontalGridBrowseBinding;
 import org.jellyfin.androidtv.databinding.PopupEmptyBinding;
@@ -51,6 +54,7 @@ import org.jellyfin.androidtv.ui.itemhandling.BaseRowItem;
 import org.jellyfin.androidtv.ui.itemhandling.ItemLauncher;
 import org.jellyfin.androidtv.ui.itemhandling.ItemRowAdapter;
 import org.jellyfin.androidtv.ui.itemhandling.ItemRowAdapterHelperKt;
+import org.jellyfin.androidtv.ui.itemhandling.KidsViewMenus;
 import org.jellyfin.androidtv.ui.presentation.CardPresenter;
 import org.jellyfin.androidtv.ui.presentation.HorizontalGridPresenter;
 import org.jellyfin.androidtv.util.CoroutineUtils;
@@ -821,6 +825,20 @@ public class BrowseGridFragment extends Fragment implements View.OnKeyListener {
         });
         mLetterButton.setContentDescription(getString(R.string.lbl_by_letter));
         binding.toolBar.addView(mLetterButton);
+
+        // Kids view (Finly): parents can mark what a child's profile, or a level, can see
+        if (KidsViewMenus.isAdministrator()) {
+            KidsViewRepository kidsView = KoinJavaComponent.get(KidsViewRepository.class);
+            ImageButton kidsViewButton = new ImageButton(requireContext(), null, 0, R.style.Button_Icon);
+            kidsViewButton.setImageResource(R.drawable.ic_child_care);
+            kidsViewButton.setActivated(kidsView.getTarget().getValue() != null);
+            kidsViewButton.setMaxHeight(size);
+            kidsViewButton.setAdjustViewBounds(true);
+            kidsViewButton.setOnClickListener(v -> KidsViewMenus.showTargetMenu(requireActivity(), v,
+                    () -> kidsViewButton.setActivated(kidsView.getTarget().getValue() != null)));
+            kidsViewButton.setContentDescription(getString(R.string.kids_view));
+            binding.toolBar.addView(kidsViewButton);
+        }
 
         if (mFolder.getDisplayPreferencesId() != null) {
             MutableStateFlow<Boolean> settingsVisible = BrowseGridFragmentHelperKt.createSettingsVisibility(BrowseGridFragment.this);

@@ -40,6 +40,7 @@ import org.jellyfin.androidtv.ui.composable.AsyncImage
 import org.jellyfin.androidtv.ui.composable.item.ItemCard
 import org.jellyfin.androidtv.ui.composable.item.ItemCardBaseItemOverlay
 import org.jellyfin.androidtv.ui.composable.item.ItemPreview
+import org.jellyfin.androidtv.ui.composable.item.KidsViewBadge
 import org.jellyfin.androidtv.ui.itemhandling.BaseItemDtoBaseRowItem
 import org.jellyfin.androidtv.ui.itemhandling.BaseRowItem
 import org.jellyfin.androidtv.ui.itemhandling.BaseRowType
@@ -373,6 +374,7 @@ private fun CardViewHolderContent(
 							}
 						}
 					)
+					KidsViewBadge(item = baseItem, modifier = Modifier.align(Alignment.TopStart))
 				}
 			},
 			modifier = Modifier

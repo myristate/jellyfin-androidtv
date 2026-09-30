@@ -51,6 +51,8 @@ object RemoveFromProfile {
 		val name = userRepository.currentUser.value?.name.orEmpty()
 		return buildList {
 			add(activity.getString(R.string.remove_from_profile, name) to MENU_ME)
+			// Parents get the children's profiles menu instead, which knows who can see the item
+			if (KidsViewMenus.isAdministrator()) return@buildList
 			repository.offeredLevels().forEachIndexed { index, level ->
 				add(activity.getString(R.string.remove_from_level, level.name) to MENU_LEVEL_FIRST + index)
 			}

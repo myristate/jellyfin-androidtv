@@ -18,6 +18,7 @@ import org.jellyfin.androidtv.ui.navigation.Destinations
 import org.jellyfin.androidtv.ui.navigation.NavigationRepository
 import org.jellyfin.androidtv.util.TimeUtils
 import org.jellyfin.androidtv.util.apiclient.getSeriesOverview
+import org.jellyfin.androidtv.ui.itemhandling.KidsViewMenus
 import org.jellyfin.androidtv.ui.itemhandling.RemoveFromProfile
 import org.jellyfin.androidtv.util.MenuBuilder
 import org.jellyfin.androidtv.util.popupMenu
@@ -149,6 +150,9 @@ fun MenuBuilder.addRemoveChoices(fragment: FullDetailsFragment, item: BaseItemDt
 	val activity = fragment.requireActivity()
 	for ((label, id) in RemoveFromProfile.choices(activity)) {
 		item(label) { RemoveFromProfile.handle(activity, id, item) { fragment.leaveRemovedItem(item) } }
+	}
+	if (KidsViewMenus.isAdministrator()) {
+		item(activity.getString(R.string.kids_view_profiles)) { KidsViewMenus.showProfilesMenu(activity, activity.currentFocus, item) }
 	}
 }
 

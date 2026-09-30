@@ -729,6 +729,13 @@
     <string name="remove_confirm_level">%1$s will no longer show on any %2$s profile. A parent can put it back from the profile\'s parental controls.</string>
     <string name="remove_done">%1$s was removed</string>
     <string name="remove_failed">Couldn\'t remove %1$s</string>
+    <string name="add_to_profile">Add to %1$s\'s profile</string>
+    <string name="add_to_level">Add to all %1$s profiles</string>
+    <string name="add_done">%1$s was added</string>
+    <string name="kids_view">Kids view</string>
+    <string name="kids_view_off">Off</string>
+    <string name="kids_view_level">All %1$s profiles</string>
+    <string name="kids_view_profiles">Children\'s profiles…</string>
     <string name="kids">Kids</string>
     <string name="kids_tag_added">%1$s is tagged \"%2$s\" and shows on kids\' profiles</string>
     <string name="kids_tag_removed">%1$s is no longer tagged \"%2$s\"</string>
