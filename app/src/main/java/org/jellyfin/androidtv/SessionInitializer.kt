@@ -1,6 +1,8 @@
 package org.jellyfin.androidtv
 
 import android.content.Context
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import androidx.startup.AppInitializer
@@ -21,6 +23,14 @@ class SessionInitializer : Initializer<Unit> {
 		ProcessLifecycleOwner.get().lifecycleScope.launch(Dispatchers.IO) {
 			koin.get<SessionRepository>().restoreSession(destroyOnly = false)
 		}
+
+		// (Finly) The whole app going to the background counts towards locking a PIN protected profile. Moving between
+		// the app's own screens, such as to the external player screen and back, doesn't.
+		ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
+			override fun onStop(owner: LifecycleOwner) {
+				koin.get<SessionRepository>().onBackgrounded()
+			}
+		})
 	}
 
 	override fun dependencies() = listOf(KoinInitializer::class.java)

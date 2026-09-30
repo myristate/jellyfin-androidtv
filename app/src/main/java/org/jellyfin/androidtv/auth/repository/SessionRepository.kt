@@ -84,6 +84,11 @@ interface SessionRepository {
 	fun onBackgrounded()
 
 	/**
+	 * While an external player app is playing (Finly), the app being in the background doesn't count towards locking.
+	 */
+	fun setExternalPlaybackActive(active: Boolean)
+
+	/**
 	 * Sign out of a PIN protected profile when the app was in the background for longer than [PIN_LOCK_TIMEOUT].
 	 * @return true when the session was signed out.
 	 */
@@ -116,6 +121,8 @@ class SessionRepositoryImpl(
 	private val _state = MutableStateFlow(SessionRepositoryState.READY)
 	override val state = _state.asStateFlow()
 	private var backgroundedAt: Instant? = null
+	@Volatile
+	private var externalPlaybackActive = false
 
 	private companion object {
 		const val RESTORE_RETRY_MAX_DELAY_SECONDS = 4
@@ -195,8 +202,14 @@ class SessionRepositoryImpl(
 	}
 
 	override fun onBackgrounded() {
+		// Watching in an external player app isn't leaving the TV
+		if (externalPlaybackActive) return
 		// Keep the earliest, the screensaver running before the app is left counts too
 		if (backgroundedAt == null) backgroundedAt = Instant.now()
+	}
+
+	override fun setExternalPlaybackActive(active: Boolean) {
+		externalPlaybackActive = active
 	}
 
 	override fun lockIfNeeded(): Boolean {

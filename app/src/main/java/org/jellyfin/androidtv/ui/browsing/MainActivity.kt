@@ -147,9 +147,9 @@ class MainActivity : FragmentActivity() {
 		super.onStop()
 
 		workManager.enqueue(OneTimeWorkRequestBuilder<LeanbackChannelWorker>().build())
-		// Not when finishing, for example after switching user: that session is gone and the time would count against
-		// the next one
-		if (!isFinishing) sessionRepository.onBackgrounded()
+		// Leaving the app counts towards locking a PIN protected profile, SessionInitializer tells the session repository
+		// when the whole app goes to the background: opening another screen of the app, such as the external player,
+		// doesn't count
 
 		lifecycleScope.launch(Dispatchers.IO) {
 			Timber.i("MainActivity stopped")
