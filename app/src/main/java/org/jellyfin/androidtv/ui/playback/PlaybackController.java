@@ -905,7 +905,12 @@ public class PlaybackController implements PlaybackControllerNotifiable {
         Timber.w("Live TV channel did not start, retry %s of %s", liveTvStartRetries, LIVE_TV_START_RETRIES);
         Utils.showToast(mFragment.getContext(), mFragment.getString(R.string.msg_live_tv_retrying));
         stop();
-        play(0);
+        // Wait a little longer each time, a busy tuner or server often only needs a moment. Skip the retry when
+        // something else was played in the meantime.
+        final int request = playRequest;
+        mHandler.postDelayed(() -> {
+            if (request == playRequest && mFragment != null) play(0);
+        }, 1000L * liveTvStartRetries);
         return true;
     }
 

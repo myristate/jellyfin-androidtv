@@ -668,6 +668,9 @@ public class CustomPlaybackOverlayFragment extends Fragment implements LiveTvGui
         return mCurrentGuideEnd;
     }
 
+    // The channel most recently switched to, which may still be loading
+    private UUID lastRequestedChannelId = null;
+
     public void switchChannel(UUID id) {
         switchChannel(id, true);
     }
@@ -695,9 +698,12 @@ public class CustomPlaybackOverlayFragment extends Fragment implements LiveTvGui
      * Tune to the channel [offset] places away in the guide's channel list, wrapping round at either end.
      */
     private void changeChannelBy(int offset) {
+        // Count from the channel asked for last rather than the one playing, which lags behind when the button is
+        // pressed repeatedly
         BaseItemDto current = playbackControllerContainer.getValue().getPlaybackController().getCurrentlyPlayingItem();
+        UUID from = lastRequestedChannelId != null ? lastRequestedChannelId : current == null ? null : current.getId();
         int count = TvManager.getAllChannels().size();
-        int index = current == null ? -1 : TvManager.getAllChannelsIndex(current.getId());
+        int index = from == null ? -1 : TvManager.getAllChannelsIndex(from);
         if (index < 0 || count < 2) return;
 
         BaseItemDto next = TvManager.getChannel(((index + offset) % count + count) % count);
@@ -707,6 +713,7 @@ public class CustomPlaybackOverlayFragment extends Fragment implements LiveTvGui
     }
 
     public void switchChannel(UUID id, boolean hideGuide) {
+        lastRequestedChannelId = id;
         if (playbackControllerContainer.getValue().getPlaybackController().getCurrentlyPlayingItem().getId().equals(id)) {
             // same channel, just dismiss overlay
             if (hideGuide)
