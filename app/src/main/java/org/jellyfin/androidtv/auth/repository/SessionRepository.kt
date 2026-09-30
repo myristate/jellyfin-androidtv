@@ -67,7 +67,7 @@ interface SessionRepository {
 	fun destroyCurrentSession()
 
 	/**
-	 * Remember when the app went to the background, used by [lockIfNeeded].
+	 * Remember when the app went to the background or its screensaver started, used by [lockIfNeeded].
 	 */
 	fun onBackgrounded()
 
@@ -183,7 +183,8 @@ class SessionRepositoryImpl(
 	}
 
 	override fun onBackgrounded() {
-		backgroundedAt = Instant.now()
+		// Keep the earliest, the screensaver running before the app is left counts too
+		if (backgroundedAt == null) backgroundedAt = Instant.now()
 	}
 
 	override fun lockIfNeeded(): Boolean {
@@ -194,7 +195,7 @@ class SessionRepositoryImpl(
 		if (Duration.between(since, Instant.now()) < SessionRepository.PIN_LOCK_TIMEOUT) return false
 		if (authenticationStore.getUser(session.serverId, session.userId)?.pinHash == null) return false
 
-		Timber.i("Locking PIN protected profile of user ${session.userId} after being in the background")
+		Timber.i("Locking PIN protected profile of user ${session.userId} after the TV was left idle")
 		destroyCurrentSession()
 		return true
 	}

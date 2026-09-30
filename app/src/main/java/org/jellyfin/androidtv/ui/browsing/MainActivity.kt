@@ -14,6 +14,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
@@ -52,6 +53,16 @@ class MainActivity : FragmentActivity() {
 			.onEach { keepScreenOn ->
 				if (keepScreenOn) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 				else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+			}.launchIn(lifecycleScope)
+
+		// The screensaver means nobody is using the TV, the same as leaving the app: a PIN protected profile asks for
+		// its PIN again when the screensaver ran long enough
+		interactionTrackerViewModel.visible
+			.drop(1)
+			.onEach { visible ->
+				if (visible) sessionRepository.onBackgrounded()
+				// Leaving the app also hides the screensaver, onResume() checks when coming back
+				else if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) && sessionRepository.lockIfNeeded()) validateAuthentication()
 			}.launchIn(lifecycleScope)
 
 		if (savedInstanceState == null && navigationRepository.canGoBack) navigationRepository.reset(clearHistory = true)
@@ -118,7 +129,9 @@ class MainActivity : FragmentActivity() {
 		super.onStop()
 
 		workManager.enqueue(OneTimeWorkRequestBuilder<LeanbackChannelWorker>().build())
-		sessionRepository.onBackgrounded()
+		// Not when finishing, for example after switching user: that session is gone and the time would count against
+		// the next one
+		if (!isFinishing) sessionRepository.onBackgrounded()
 
 		lifecycleScope.launch(Dispatchers.IO) {
 			Timber.i("MainActivity stopped")
