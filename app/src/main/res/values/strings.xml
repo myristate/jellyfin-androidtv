@@ -727,7 +727,6 @@
     <string name="remove_from_level">Remove from all %1$s profiles</string>
     <string name="remove_confirm_title">Remove from library?</string>
     <string name="remove_confirm_profile">%1$s will no longer show on this profile. A parent can put it back from the profile\'s parental controls.</string>
-    <string name="remove_confirm_level">%1$s will no longer show on any %2$s profile. A parent can put it back from the profile\'s parental controls.</string>
     <string name="remove_done">%1$s was removed</string>
     <string name="remove_failed">Couldn\'t remove %1$s</string>
     <string name="add_to_profile">Add to %1$s\'s profile</string>
