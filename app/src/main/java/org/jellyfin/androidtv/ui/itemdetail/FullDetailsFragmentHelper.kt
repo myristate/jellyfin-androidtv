@@ -5,6 +5,7 @@ import android.view.View
 import android.widget.Toast
 import android.app.AlertDialog
 import androidx.core.view.isVisible
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -153,7 +154,7 @@ fun FullDetailsFragment.showRemoveMenu(anchor: View) = popupMenu(requireContext(
 	addRemoveChoices(this@showRemoveMenu, mBaseItem)
 }.showIfNotEmpty()
 
-/** The Remove from <name>'s profile and Remove from all <level> profiles choices. */
+/** The Remove from <name>'s profile choice, and the children's profiles menu for administrators. */
 fun MenuBuilder.addRemoveChoices(fragment: FullDetailsFragment, item: BaseItemDto) {
 	if (!RemoveFromProfile.canRemove(item)) return
 	val activity = fragment.requireActivity()
@@ -161,7 +162,9 @@ fun MenuBuilder.addRemoveChoices(fragment: FullDetailsFragment, item: BaseItemDt
 		item(label) { RemoveFromProfile.handle(activity, id, item) { fragment.leaveRemovedItem(item) } }
 	}
 	if (KidsViewMenus.isAdministrator()) {
-		item(activity.getString(R.string.kids_view_profiles)) { KidsViewMenus.showProfilesMenu(activity, activity.currentFocus, item) }
+		item(activity.getString(R.string.kids_view_profiles)) {
+			KidsViewMenus.showProfilesMenu(activity, activity.currentFocus, item, fragment.viewLifecycleOwner)
+		}
 	}
 }
 
@@ -171,6 +174,11 @@ private fun FullDetailsFragment.leaveRemovedItem(item: BaseItemDto) {
 	val dataRefreshService by inject<DataRefreshService>()
 
 	dataRefreshService.lastDeletedItemId = item.id
+
+	// Only while this page is still the one showing: it may have been left while the removal was sent, and going back
+	// again would skip a page (Finly)
+	if (!isAdded || isRemoving || !lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) return
+
 	if (navigationRepository.canGoBack) navigationRepository.goBack()
 	else navigationRepository.navigate(Destinations.home)
 }

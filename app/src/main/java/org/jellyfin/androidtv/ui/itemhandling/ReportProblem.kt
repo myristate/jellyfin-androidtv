@@ -31,7 +31,7 @@ private data class ReportBody(@SerialName("Problem") val problem: String)
  */
 object ReportProblem {
 	/** The item menu entry that opens the list of problems. */
-	const val MENU_REPORT = 960
+	const val MENU_REPORT = FinlyMenuIds.REPORT_PROBLEM
 
 	private val reportableTypes = setOf(
 		BaseItemKind.MOVIE,

@@ -8,20 +8,19 @@ import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 import org.jellyfin.androidtv.R
 import org.jellyfin.androidtv.auth.repository.UserRepository
-import org.jellyfin.androidtv.data.repository.ProfileLevel
 import org.jellyfin.androidtv.data.repository.ProfileLevelRepository
 import org.jellyfin.sdk.model.api.BaseItemDto
 import org.jellyfin.sdk.model.api.BaseItemKind
 import org.koin.java.KoinJavaComponent
 
 /**
- * The "Remove from <name>'s profile" and "Remove from all <level> profiles" choices for films and shows, in item menus
- * and on detail pages.
+ * The "Remove from <name>'s profile" choice for films and shows, in item menus and on detail pages. Only the signed
+ * in profile's own list can be changed here: removing from every profile on a level is for parents, who do that from
+ * the children's profiles menu ([KidsViewMenus]), and the server refuses it for anyone else.
  */
 object RemoveFromProfile {
-	/** Menu item ids, level choices follow [MENU_LEVEL_FIRST] in the order of [ProfileLevelRepository.offeredLevels]. */
-	const val MENU_ME = 900
-	const val MENU_LEVEL_FIRST = 901
+	/** Menu item id of the choice, see [FinlyMenuIds]. */
+	const val MENU_ME = FinlyMenuIds.REMOVE_FROM_ME
 
 	private val removableTypes = setOf(
 		BaseItemKind.MOVIE,
@@ -39,24 +38,11 @@ object RemoveFromProfile {
 	@JvmStatic
 	fun canRemove(item: BaseItemDto) = item.type in removableTypes
 
-	/** Load the levels in the background, so the next menu offers them. */
-	@JvmStatic
-	fun refreshLevels(activity: FragmentActivity) {
-		activity.lifecycleScope.launch { repository.refresh() }
-	}
-
-	/** The choices, as labels with the action to take. */
+	/** The choices, as labels with the menu item id to hand to [handle]. */
 	@JvmStatic
 	fun choices(activity: FragmentActivity): List<Pair<String, Int>> {
 		val name = userRepository.currentUser.value?.name.orEmpty()
-		return buildList {
-			add(activity.getString(R.string.remove_from_profile, name) to MENU_ME)
-			// Parents get the children's profiles menu instead, which knows who can see the item
-			if (KidsViewMenus.isAdministrator()) return@buildList
-			repository.offeredLevels().forEachIndexed { index, level ->
-				add(activity.getString(R.string.remove_from_level, level.name) to MENU_LEVEL_FIRST + index)
-			}
-		}
+		return listOf(activity.getString(R.string.remove_from_profile, name) to MENU_ME)
 	}
 
 	/** Add the choices to a menu, returning the next order. */
@@ -75,36 +61,26 @@ object RemoveFromProfile {
 	@JvmStatic
 	@JvmOverloads
 	fun handle(activity: FragmentActivity, menuId: Int, item: BaseItemDto, onRemoved: Runnable? = null): Boolean {
-		val level: ProfileLevel? = when {
-			menuId == MENU_ME -> null
-			menuId >= MENU_LEVEL_FIRST -> repository.offeredLevels().getOrNull(menuId - MENU_LEVEL_FIRST) ?: return false
-			else -> return false
-		}
-
-		val message = if (level == null) activity.getString(R.string.remove_confirm_profile, item.name)
-		else activity.getString(R.string.remove_confirm_level, item.name, level.name)
+		if (menuId != MENU_ME) return false
 
 		AlertDialog.Builder(activity)
 			.setTitle(R.string.remove_confirm_title)
-			.setMessage(message)
-			.setPositiveButton(R.string.remove_button) { _, _ -> remove(activity, item, level, onRemoved) }
+			.setMessage(activity.getString(R.string.remove_confirm_profile, item.name))
+			.setPositiveButton(R.string.remove_button) { _, _ -> remove(activity, item, onRemoved) }
 			.setNegativeButton(R.string.btn_cancel, null)
 			.show()
 		return true
 	}
 
-	private fun remove(activity: FragmentActivity, item: BaseItemDto, level: ProfileLevel?, onRemoved: Runnable?) {
+	private fun remove(activity: FragmentActivity, item: BaseItemDto, onRemoved: Runnable?) {
 		activity.lifecycleScope.launch {
-			val removed = if (level == null) repository.hideFromMe(item.id) else repository.hideFromLevel(item.id, level.id)
-			if (!removed) {
+			if (!repository.hideFromMe(item.id)) {
 				Toast.makeText(activity, activity.getString(R.string.remove_failed, item.name), Toast.LENGTH_LONG).show()
 				return@launch
 			}
 
 			Toast.makeText(activity, activity.getString(R.string.remove_done, item.name), Toast.LENGTH_LONG).show()
-			// Removing from a level the profile isn't on leaves it here
-			val goneHere = level == null || level.id.replace("-", "").equals(repository.ownLevelId, ignoreCase = true)
-			if (goneHere) onRemoved?.run()
+			onRemoved?.run()
 		}
 	}
 }
