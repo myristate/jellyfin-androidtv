@@ -185,7 +185,7 @@ fun InfoRowMediaDetails(mediaSource: MediaSourceInfo) {
 	}
 
 	// Container, such as MKV or MP4 (Finly)
-	val container = mediaSource.container?.substringBefore(',')?.uppercase()
+	val container = containerDisplayName(mediaSource.container)
 	if (!container.isNullOrBlank()) {
 		InfoRowItem(contentDescription = null, colors = InfoRowColors.Default) { Text(container) }
 	}

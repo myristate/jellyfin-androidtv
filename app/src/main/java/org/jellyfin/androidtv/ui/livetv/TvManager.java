@@ -74,6 +74,18 @@ public class TvManager {
 
     public static boolean shouldForceReload() { return forceReload; }
 
+    /**
+     * Forget the loaded channels and programs (Finly). They belong to the profile that loaded them: another profile may
+     * not see the same channels, so channel up and down must not step through them.
+     */
+    public static void clearCache() {
+        allChannels = null;
+        channelIds = new UUID[0];
+        mProgramsDict = new HashMap<>();
+        needLoadTime = null;
+        forceReload = true;
+    }
+
     public static int getAllChannelsIndex(UUID id) {
         if (allChannels == null) return -1;
         for (int i = 0; i < allChannels.size(); i++) {

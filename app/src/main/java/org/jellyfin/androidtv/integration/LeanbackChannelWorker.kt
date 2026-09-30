@@ -20,14 +20,18 @@ import androidx.tvprovider.media.tv.WatchNextProgram
 import androidx.work.BackoffPolicy
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.await
+import androidx.work.workDataOf
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.withContext
 import org.jellyfin.androidtv.R
+import org.jellyfin.androidtv.auth.repository.AuthenticationRepository
+import org.jellyfin.androidtv.auth.repository.SessionRepository
 import org.jellyfin.androidtv.data.repository.ItemRepository
 import org.jellyfin.androidtv.data.repository.UserViewsRepository
 import org.jellyfin.androidtv.integration.provider.ImageProvider
@@ -74,6 +78,7 @@ class LeanbackChannelWorker(
 	companion object {
 		private const val PERIODIC_UPDATE_REQUEST_NAME = "LeanbackChannelPeriodicUpdateRequest"
 		private const val CHANNEL_STORE_NAME = "leanback_channels"
+		private const val KEY_CLEAR = "clear"
 
 		/**
 		 * Check if the app can use Android TV home screen channels on this device.
@@ -91,12 +96,34 @@ class LeanbackChannelWorker(
 					.build()
 			).await()
 		}
+
+		/**
+		 * Take everything off the home screen rows now (Finly), for example when a PIN protected profile locks.
+		 */
+		fun clear(workManager: WorkManager) {
+			workManager.enqueue(
+				OneTimeWorkRequestBuilder<LeanbackChannelWorker>()
+					.setInputData(workDataOf(KEY_CLEAR to true))
+					.build()
+			)
+		}
 	}
 
 	private val api by inject<ApiClient>()
 	private val userPreferences by inject<UserPreferences>()
 	private val userViewsRepository by inject<UserViewsRepository>()
 	private val imageHelper by inject<ImageHelper>()
+	private val sessionRepository by inject<SessionRepository>()
+	private val authenticationRepository by inject<AuthenticationRepository>()
+
+	/**
+	 * Whether the signed in profile has a PIN (Finly). Its films and shows stay off the home screen, where anyone
+	 * picking up the remote would see them.
+	 */
+	private fun currentProfileHasPin(): Boolean {
+		val session = sessionRepository.currentSession.value ?: return false
+		return authenticationRepository.hasPin(session.serverId, session.userId)
+	}
 
 	/**
 	 * Update all channels for the currently authenticated user.
@@ -107,6 +134,11 @@ class LeanbackChannelWorker(
 		// Clear all integration data when disabled
 		!userPreferences[UserPreferences.tvProviderEnabled] -> {
 			clearChannels()
+			Result.success()
+		}
+		// Asked to clear the rows, or the profile is PIN protected (Finly)
+		inputData.getBoolean(KEY_CLEAR, false) || currentProfileHasPin() -> {
+			clearPrograms()
 			Result.success()
 		}
 		// Retry later if no authenticated user is found
@@ -202,6 +234,15 @@ class LeanbackChannelWorker(
 	/**
 	 * Remove all channels and programs managed by the Android TV home screen integration.
 	 */
+	/**
+	 * Remove the programs from the rows but keep the channels (Finly), so the rows stay where the user put them on the
+	 * home screen.
+	 */
+	private fun clearPrograms() {
+		context.contentResolver.delete(TvContractCompat.PreviewPrograms.CONTENT_URI, null, null)
+		context.contentResolver.delete(WatchNextPrograms.CONTENT_URI, null, null)
+	}
+
 	private fun clearChannels() {
 		context.contentResolver.delete(TvContractCompat.PreviewPrograms.CONTENT_URI, null, null)
 		context.contentResolver.delete(WatchNextPrograms.CONTENT_URI, null, null)

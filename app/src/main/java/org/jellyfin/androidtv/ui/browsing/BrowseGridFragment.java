@@ -834,7 +834,7 @@ public class BrowseGridFragment extends Fragment implements View.OnKeyListener {
             kidsViewButton.setActivated(kidsView.getTarget().getValue() != null);
             kidsViewButton.setMaxHeight(size);
             kidsViewButton.setAdjustViewBounds(true);
-            kidsViewButton.setOnClickListener(v -> KidsViewMenus.showTargetMenu(requireActivity(), v,
+            kidsViewButton.setOnClickListener(v -> KidsViewMenus.showTargetMenu(requireActivity(), getViewLifecycleOwner(), v,
                     () -> kidsViewButton.setActivated(kidsView.getTarget().getValue() != null)));
             kidsViewButton.setContentDescription(getString(R.string.kids_view));
             binding.toolBar.addView(kidsViewButton);

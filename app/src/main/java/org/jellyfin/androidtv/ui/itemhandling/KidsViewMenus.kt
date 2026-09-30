@@ -1,20 +1,26 @@
 package org.jellyfin.androidtv.ui.itemhandling
 
+import android.app.Activity
 import android.view.Gravity
 import android.view.Menu
 import android.view.View
 import android.widget.PopupMenu
 import android.widget.Toast
 import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 import org.jellyfin.androidtv.R
 import org.jellyfin.androidtv.auth.repository.UserRepository
+import org.jellyfin.androidtv.data.repository.AccessProfile
 import org.jellyfin.androidtv.data.repository.KidsViewRepository
 import org.jellyfin.androidtv.data.repository.KidsViewTarget
+import org.jellyfin.androidtv.data.repository.ProfileLevel
 import org.jellyfin.androidtv.data.repository.ProfileLevelRepository
 import org.jellyfin.sdk.model.api.BaseItemDto
 import org.koin.java.KoinJavaComponent
+import timber.log.Timber
 
 /**
  * Menus for the kids view (Finly): choosing which profile or level it shows, and adding an item to or removing it from
@@ -26,7 +32,12 @@ object KidsViewMenus {
 	private val userRepository by lazy { KoinJavaComponent.get<UserRepository>(UserRepository::class.java) }
 
 	/** The item menu entry that opens [showProfilesMenu]. */
-	const val MENU_PROFILES = 950
+	const val MENU_PROFILES = FinlyMenuIds.CHILDREN_PROFILES
+
+	// Ids in the target menu: Off, then the levels, then the profiles
+	private const val TARGET_OFF = 0
+	private const val TARGET_LEVEL_FIRST = 100
+	private const val TARGET_PROFILE_FIRST = 1000
 
 	@JvmStatic
 	fun isAdministrator() = userRepository.currentUser.value?.policy?.isAdministrator == true
@@ -39,33 +50,41 @@ object KidsViewMenus {
 		return order + 1
 	}
 
-	/** Choose what the kids view shows, [onChanged] runs after a choice. */
+	/**
+	 * Choose what the kids view shows, the current choice is ticked. [onChanged] runs after a choice. The server is asked
+	 * for the profiles first, in [owner]'s scope: pass a fragment's view lifecycle owner so leaving the screen meanwhile
+	 * cancels the menu.
+	 */
 	@JvmStatic
-	fun showTargetMenu(activity: FragmentActivity, anchor: View, onChanged: Runnable) {
-		activity.lifecycleScope.launch {
+	fun showTargetMenu(activity: FragmentActivity, owner: LifecycleOwner, anchor: View, onChanged: Runnable) {
+		owner.lifecycleScope.launch {
 			levels.refresh()
 			val profiles = kidsView.loadProfiles()
 			val restricted = kidsView.restrictedLevels()
 			val current = kidsView.target.value
+			if (!canShowMenu(activity, owner, anchor)) return@launch
 
 			val menu = PopupMenu(activity, anchor, Gravity.END)
-			menu.menu.add(0, 0, 0, activity.getString(R.string.kids_view_off))
+			menu.menu.add(0, TARGET_OFF, 0, activity.getString(R.string.kids_view_off))
 			restricted.forEachIndexed { index, level ->
-				menu.menu.add(0, 100 + index, index + 1, activity.getString(R.string.kids_view_level, level.name))
+				menu.menu.add(0, TARGET_LEVEL_FIRST + index, index + 1, activity.getString(R.string.kids_view_level, level.name))
 			}
 			profiles.forEachIndexed { index, profile ->
-				menu.menu.add(0, 1000 + index, 100 + index, profile.name)
+				menu.menu.add(0, TARGET_PROFILE_FIRST + index, 100 + index, profile.name)
 			}
-			current?.let { menu.menu.setGroupCheckable(0, true, true) }
+			// One choice at a time, with the current one ticked; Off when the kids view is off
+			menu.menu.setGroupCheckable(0, true, true)
+			menu.menu.findItem(targetMenuId(current, restricted, profiles))?.isChecked = true
 
 			menu.setOnMenuItemClickListener { choice ->
 				kidsView.setTarget(
 					when (val id = choice.itemId) {
-						0 -> null
-						in 100 until 1000 -> restricted[id - 100].let {
+						TARGET_OFF -> null
+						in TARGET_LEVEL_FIRST until TARGET_PROFILE_FIRST -> restricted[id - TARGET_LEVEL_FIRST].let {
 							KidsViewTarget(levelId = it.id, userId = null, name = activity.getString(R.string.kids_view_level, it.name))
 						}
-						else -> profiles[id - 1000].let { KidsViewTarget(levelId = null, userId = it.id, name = it.name) }
+
+						else -> profiles[id - TARGET_PROFILE_FIRST].let { KidsViewTarget(levelId = null, userId = it.id, name = it.name) }
 					}
 				)
 				onChanged.run()
@@ -75,13 +94,24 @@ object KidsViewMenus {
 		}
 	}
 
+	private fun targetMenuId(target: KidsViewTarget?, restricted: List<ProfileLevel>, profiles: List<AccessProfile>): Int {
+		if (target == null) return TARGET_OFF
+		val key = { id: String? -> id?.replace("-", "")?.lowercase() }
+		return when {
+			target.userId != null -> profiles.indexOfFirst { key(it.id) == key(target.userId) }.let { if (it < 0) -1 else TARGET_PROFILE_FIRST + it }
+			else -> restricted.indexOfFirst { key(it.id) == key(target.levelId) }.let { if (it < 0) -1 else TARGET_LEVEL_FIRST + it }
+		}
+	}
+
 	/**
 	 * Add an item to, or remove it from, each restricted level and profile: Add where some of them can't see it yet,
-	 * Remove where some can.
+	 * Remove where some can. The server is asked first, in [owner]'s scope: pass a fragment's view lifecycle owner where
+	 * there is one so leaving the screen meanwhile cancels the menu.
 	 */
 	@JvmStatic
-	fun showProfilesMenu(activity: FragmentActivity, anchor: View?, item: BaseItemDto) {
-		activity.lifecycleScope.launch {
+	@JvmOverloads
+	fun showProfilesMenu(activity: FragmentActivity, anchor: View?, item: BaseItemDto, owner: LifecycleOwner = activity) {
+		owner.lifecycleScope.launch {
 			levels.refresh()
 			val visibleTo = kidsView.accessFor(item.id)
 			val profiles = kidsView.profiles
@@ -106,7 +136,10 @@ object KidsViewMenus {
 			}
 			if (choices.isEmpty()) return@launch
 
-			val menu = PopupMenu(activity, anchor ?: activity.currentFocus ?: activity.window.decorView, Gravity.END)
+			val menuAnchor = anchor?.takeIf { it.isAttachedToWindow } ?: activity.currentFocus ?: activity.window.decorView
+			if (!canShowMenu(activity, owner, menuAnchor)) return@launch
+
+			val menu = PopupMenu(activity, menuAnchor, Gravity.END)
 			choices.forEachIndexed { index, choice -> menu.menu.add(0, index, index, choice.label) }
 			menu.setOnMenuItemClickListener { menuItem ->
 				val choice = choices[menuItem.itemId]
@@ -124,5 +157,17 @@ object KidsViewMenus {
 			}
 			menu.show()
 		}
+	}
+
+	/**
+	 * Whether a menu can still be shown after waiting for the server: the screen may have been left meanwhile, and a
+	 * popup on a detached view or a finishing activity crashes.
+	 */
+	private fun canShowMenu(activity: Activity, owner: LifecycleOwner, anchor: View): Boolean {
+		val showing = anchor.isAttachedToWindow && anchor.windowToken != null &&
+			!activity.isFinishing && !activity.isDestroyed &&
+			owner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+		if (!showing) Timber.i("Not showing the kids view menu, the screen was left")
+		return showing
 	}
 }

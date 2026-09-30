@@ -9,6 +9,7 @@ import android.graphics.Color;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.SystemClock;
 import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -223,9 +224,21 @@ public class LiveTvGuideFragment extends Fragment implements LiveTvGuide, View.O
     }
 
     private void load() {
+        load(null);
+    }
+
+    /**
+     * @param keepChannelId show the page of channels with this channel on it rather than the last tuned channel's
+     */
+    private void load(@Nullable UUID keepChannelId) {
         mCurrentGuideStart = LocalDateTime.now();
         fillTimeLine(mCurrentGuideStart, getGuideHours());
         TvManager.loadAllChannels(this, ndx -> {
+            if (keepChannelId != null) {
+                // The same 1-based position the last tuned channel is given
+                int keepNdx = TvManager.getAllChannelsIndex(keepChannelId);
+                if (keepNdx >= 0) ndx = keepNdx + 1;
+            }
             if (ndx >= PAGE_SIZE) {
                 // last channel is not in first page so grab a set where it will be in the middle
                 ndx = ndx - (PAGE_SIZE / 2);
@@ -264,15 +277,36 @@ public class LiveTvGuideFragment extends Fragment implements LiveTvGuide, View.O
     }
 
     private static final long STALE_CHECK_MS = 60_000;
+    // Don't reload the guide under someone who is moving around it
+    private static final long NAVIGATION_QUIET_MS = 30_000;
+    private long lastNavigationAt = 0;
 
-    // A guide left open keeps showing the time it was opened, move it on once it is out of date like when coming back
+    // A guide left open keeps showing the time it was opened, move it on once it is out of date like when coming back.
+    // The highlighted channel stays highlighted.
     private final Runnable refreshWhenStale = new Runnable() {
         @Override
         public void run() {
-            doLoad();
+            boolean stale = mCurrentGuideStart.plusMinutes(30).isBefore(LocalDateTime.now()) || mChannels.getChildCount() == 0;
+            boolean navigating = SystemClock.elapsedRealtime() - lastNavigationAt < NAVIGATION_QUIET_MS;
+            if (stale && !navigating) {
+                Timber.i("Refreshing the guide, it is out of date");
+                UUID selectedChannelId = getSelectedChannelId();
+                load(selectedChannelId);
+                mFirstFocusChannelId = selectedChannelId != null ? selectedChannelId : TvManager.getLastLiveTvChannel();
+            }
             mHandler.postDelayed(this, STALE_CHECK_MS);
         }
     };
+
+    @Nullable
+    private UUID getSelectedChannelId() {
+        if (mSelectedProgramView instanceof ProgramGridCell && ((ProgramGridCell) mSelectedProgramView).getProgram() != null) {
+            return ((ProgramGridCell) mSelectedProgramView).getProgram().getChannelId();
+        } else if (mSelectedProgramView instanceof GuideChannelHeader && ((GuideChannelHeader) mSelectedProgramView).getChannel() != null) {
+            return ((GuideChannelHeader) mSelectedProgramView).getChannel().getId();
+        }
+        return null;
+    }
 
     protected void doLoad() {
         if (TvManager.shouldForceReload() || mCurrentGuideStart.plusMinutes(30).isBefore(LocalDateTime.now()) || mChannels.getChildCount() == 0) {
@@ -818,6 +852,7 @@ public class LiveTvGuideFragment extends Fragment implements LiveTvGuide, View.O
 
     public void setSelectedProgram(RelativeLayout programView) {
         mSelectedProgramView = programView;
+        lastNavigationAt = SystemClock.elapsedRealtime();
         if (livePreview != null) {
             if (programView instanceof ProgramGridCell && ((ProgramGridCell) programView).getProgram() != null) {
                 livePreview.onChannelHighlighted(((ProgramGridCell) programView).getProgram().getChannelId());

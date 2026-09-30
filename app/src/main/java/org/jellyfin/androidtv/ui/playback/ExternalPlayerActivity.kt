@@ -13,6 +13,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.jellyfin.androidtv.R
+import org.jellyfin.androidtv.auth.repository.SessionRepository
 import org.jellyfin.androidtv.data.model.DataRefreshService
 import org.jellyfin.androidtv.data.repository.ExternalAppRepository
 import org.jellyfin.androidtv.ui.playback.external.ExternalPlayData
@@ -56,6 +57,7 @@ class ExternalPlayerActivity : FragmentActivity() {
 	private val dataRefreshService by inject<DataRefreshService>()
 	private val externalAppRepository by inject<ExternalAppRepository>()
 	private val api by inject<ApiClient>()
+	private val sessionRepository by inject<SessionRepository>()
 
 	private var resultJob: Job? = null
 
@@ -80,6 +82,9 @@ class ExternalPlayerActivity : FragmentActivity() {
 	override fun onCreate(savedInstanceState: Bundle?) {
 		super.onCreate(savedInstanceState)
 
+		// (Finly) Watching in the external player app isn't leaving the TV, a PIN protected profile stays open
+		sessionRepository.setExternalPlaybackActive(true)
+
 		lifecycleScope.launch {
 			// Wait for result job to complete before attempting to do anything
 			resultJob?.join()
@@ -90,6 +95,12 @@ class ExternalPlayerActivity : FragmentActivity() {
 				playNext(position)
 			}
 		}
+	}
+
+	override fun onDestroy() {
+		super.onDestroy()
+
+		sessionRepository.setExternalPlaybackActive(false)
 	}
 
 	private fun playNext(position: Duration = Duration.ZERO) {

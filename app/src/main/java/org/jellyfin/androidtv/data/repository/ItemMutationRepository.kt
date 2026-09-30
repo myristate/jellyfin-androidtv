@@ -27,7 +27,7 @@ interface ItemMutationRepository {
 
 	/**
 	 * Add or remove a tag on the server, requires an administrator. Tags added to a series are also added to its
-	 * seasons and episodes by the server.
+	 * seasons and episodes by the server. Only the tags change, see [ItemMutationRepositoryImpl].
 	 */
 	suspend fun setTag(item: UUID, tag: String, tagged: Boolean)
 
@@ -68,19 +68,20 @@ class ItemMutationRepositoryImpl(
 
 	override suspend fun setTag(item: UUID, tag: String, tagged: Boolean) = setTag(api, item, tag, tagged)
 
-	private suspend fun setTag(client: ApiClient, item: UUID, tag: String, tagged: Boolean) {
+	/**
+	 * The server has no way to change a single tag, only to replace the whole item with a posted one. So that an edit
+	 * made meanwhile elsewhere, such as in the web app's metadata editor, is overwritten as little as possible (Finly),
+	 * the item is read again right before posting, with nothing else in between, and only its tags are changed in what
+	 * the server returned. The raw JSON is used because the SDK model would drop properties it doesn't know about.
+	 */
+	private suspend fun setTag(client: ApiClient, item: UUID, tag: String, tagged: Boolean): Unit = withContext(Dispatchers.IO) {
 		val itemJson = getItemJson(client, item)
 		val tags = itemJson.tags()
-		if (tags.any { it.equals(tag, ignoreCase = true) } == tagged) return
+		if (tags.any { it.equals(tag, ignoreCase = true) } == tagged) return@withContext
 
 		val newTags = if (tagged) tags + tag else tags.filterNot { it.equals(tag, ignoreCase = true) }
-
-		// The server replaces the whole item with the posted one, so post back everything it returned with only the
-		// tags changed. The raw JSON is used because the SDK model would drop properties it doesn't know about.
 		val updatedItem = JsonObject(itemJson + (TAGS to JsonArray(newTags.map(::JsonPrimitive))))
-		withContext(Dispatchers.IO) {
-			client.request(HttpMethod.POST, ITEM_PATH, mapOf("itemId" to item), emptyMap(), updatedItem)
-		}
+		client.request(HttpMethod.POST, ITEM_PATH, mapOf("itemId" to item), emptyMap(), updatedItem)
 	}
 
 	private suspend fun getItemJson(item: UUID): JsonObject = getItemJson(api, item)

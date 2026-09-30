@@ -255,8 +255,6 @@ public class KeyProcessor {
             order = RemoveFromProfile.addTo(menu.getMenu(), order, item, activity);
             order = KidsViewMenus.addTo(menu.getMenu(), order, item, activity);
             order = ReportProblem.addTo(menu.getMenu(), order, item, activity);
-            // Pick up level changes for next time
-            RemoveFromProfile.refreshLevels(activity);
         }
 
         menu.setOnMenuItemClickListener(new KeyProcessorItemMenuClickListener(activity, rowItem));

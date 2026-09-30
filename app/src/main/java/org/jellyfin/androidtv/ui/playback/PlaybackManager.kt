@@ -2,6 +2,7 @@ package org.jellyfin.androidtv.ui.playback
 
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -96,7 +97,9 @@ class PlaybackManager(
 		options: VideoOptions,
 		startTimeTicks: Long
 	) = runCatching {
-		val response = withContext(Dispatchers.IO) {
+		// (Finly) For Live TV this opens the channel on the server. When the player is left or the channel changed
+		// while that is in progress, finish it anyway and close the stream, or the tuner stays busy until it times out.
+		val response = openDetached(release = { response: PlaybackInfoResponse -> api.closeLiveStreams(response) }) {
 			api.mediaInfoApi.getPostedPlaybackInfo(
 				itemId = requireNotNull(options.itemId) { "Item id cannot be null" },
 				data = PlaybackInfoDto(
@@ -123,5 +126,8 @@ class PlaybackManager(
 		}
 
 		createStreamInfo(api, options, response)
+	}.onFailure { error ->
+		// Cancelled with the screen: nobody is waiting for a callback
+		if (error is CancellationException) throw error
 	}
 }

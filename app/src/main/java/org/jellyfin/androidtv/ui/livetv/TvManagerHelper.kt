@@ -2,9 +2,14 @@ package org.jellyfin.androidtv.ui.livetv
 
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.jellyfin.androidtv.auth.repository.SessionRepository
 import org.jellyfin.androidtv.preference.LiveTvPreferences
 import org.jellyfin.sdk.api.client.ApiClient
 import org.jellyfin.sdk.api.client.extensions.liveTvApi
@@ -19,6 +24,18 @@ import org.koin.android.ext.android.inject
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.util.UUID
+
+/**
+ * Forget the Live TV channels and programs whenever the signed in profile changes (Finly), see [TvManager.clearCache].
+ * [this] should run on the main thread, where the guide and player use [TvManager].
+ */
+fun CoroutineScope.clearTvManagerOnProfileChange(sessionRepository: SessionRepository) = launch {
+	sessionRepository.currentSession
+		.map { it?.userId }
+		.distinctUntilChanged()
+		.drop(1)
+		.collect { TvManager.clearCache() }
+}
 
 fun BaseItemDto.copyWithLastPlayedDate(
 	lastPlayedDate: LocalDateTime,

@@ -13,8 +13,6 @@ data class AuthenticationStoreUser(
 	@SerialName("last_used") val lastUsed: Long = Instant.now().toEpochMilli(),
 	@SerialName("image_tag") val imageTag: String? = null,
 	@SerialName("access_token") val accessToken: String? = null,
-	// No longer used: PINs are kept on the server now, see [serverPin]. Was the hash of a PIN set on this device.
-	@SerialName("pin_hash") val pinHash: String? = null,
 	// Whether the server asks this user for a PIN on this network, as last reported by the server
 	@SerialName("server_pin") val serverPin: Boolean = false,
 	// Wrong PIN attempts since the last correct one, and when the PIN may be tried again (epoch milliseconds)

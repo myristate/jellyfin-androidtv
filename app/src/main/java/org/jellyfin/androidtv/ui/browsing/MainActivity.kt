@@ -21,8 +21,8 @@ import kotlinx.coroutines.launch
 import org.jellyfin.androidtv.auth.repository.SessionRepository
 import org.jellyfin.androidtv.auth.repository.UserRepository
 import org.jellyfin.androidtv.integration.LeanbackChannelWorker
+import org.jellyfin.androidtv.ui.playback.MediaManager
 import org.jellyfin.androidtv.ui.InteractionTrackerViewModel
-import org.jellyfin.androidtv.ui.itemhandling.RemoveFromProfile
 import org.jellyfin.androidtv.ui.background.AppBackground
 import org.jellyfin.androidtv.ui.base.JellyfinTheme
 import org.jellyfin.androidtv.ui.base.ProvideLocalInteractionTracker
@@ -42,6 +42,7 @@ class MainActivity : FragmentActivity() {
 	private val userRepository by inject<UserRepository>()
 	private val interactionTrackerViewModel by viewModel<InteractionTrackerViewModel>()
 	private val workManager by inject<WorkManager>()
+	private val mediaManager by inject<MediaManager>()
 
 	override fun onCreate(savedInstanceState: Bundle?) {
 		applyTheme()
@@ -49,9 +50,6 @@ class MainActivity : FragmentActivity() {
 		super.onCreate(savedInstanceState)
 
 		if (!validateAuthentication()) return
-
-		// For the Remove from all <level> profiles choices in item menus
-		RemoveFromProfile.refreshLevels(this)
 
 		interactionTrackerViewModel.keepScreenOn.flowWithLifecycle(lifecycle, Lifecycle.State.RESUMED)
 			.onEach { keepScreenOn ->
@@ -66,7 +64,7 @@ class MainActivity : FragmentActivity() {
 			.onEach { visible ->
 				if (visible) sessionRepository.onBackgrounded()
 				// Leaving the app also hides the screensaver, onResume() checks when coming back
-				else if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) && sessionRepository.lockIfNeeded()) validateAuthentication()
+				else if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) && lockIfNeeded()) validateAuthentication()
 			}.launchIn(lifecycleScope)
 
 		if (savedInstanceState == null && navigationRepository.canGoBack) navigationRepository.reset(clearHistory = true)
@@ -97,12 +95,24 @@ class MainActivity : FragmentActivity() {
 		super.onResume()
 
 		// Returning after a while to a PIN protected profile asks for the PIN again
-		sessionRepository.lockIfNeeded()
+		lockIfNeeded()
 		if (!validateAuthentication()) return
 
 		applyTheme()
 
 		interactionTrackerViewModel.activityPaused = false
+	}
+
+	/**
+	 * Lock a PIN protected profile that was left long enough (Finly), stopping what it was doing like switching profile
+	 * does and taking its films and shows off the home screen.
+	 */
+	private fun lockIfNeeded(): Boolean {
+		if (!sessionRepository.lockIfNeeded()) return false
+
+		mediaManager.clearAudioQueue()
+		LeanbackChannelWorker.clear(workManager)
+		return true
 	}
 
 	private fun validateAuthentication(): Boolean {
@@ -133,9 +143,9 @@ class MainActivity : FragmentActivity() {
 		super.onStop()
 
 		workManager.enqueue(OneTimeWorkRequestBuilder<LeanbackChannelWorker>().build())
-		// Not when finishing, for example after switching user: that session is gone and the time would count against
-		// the next one
-		if (!isFinishing) sessionRepository.onBackgrounded()
+		// Leaving the app counts towards locking a PIN protected profile, SessionInitializer tells the session repository
+		// when the whole app goes to the background: opening another screen of the app, such as the external player,
+		// doesn't count
 
 		lifecycleScope.launch(Dispatchers.IO) {
 			Timber.i("MainActivity stopped")
