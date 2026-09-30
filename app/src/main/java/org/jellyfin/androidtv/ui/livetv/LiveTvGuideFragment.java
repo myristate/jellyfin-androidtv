@@ -260,7 +260,19 @@ public class LiveTvGuideFragment extends Fragment implements LiveTvGuide, View.O
         mFilters.load();
         doLoad();
         if (livePreview != null) livePreview.resume();
+        mHandler.postDelayed(refreshWhenStale, STALE_CHECK_MS);
     }
+
+    private static final long STALE_CHECK_MS = 60_000;
+
+    // A guide left open keeps showing the time it was opened, move it on once it is out of date like when coming back
+    private final Runnable refreshWhenStale = new Runnable() {
+        @Override
+        public void run() {
+            doLoad();
+            mHandler.postDelayed(this, STALE_CHECK_MS);
+        }
+    };
 
     protected void doLoad() {
         if (TvManager.shouldForceReload() || mCurrentGuideStart.plusMinutes(30).isBefore(LocalDateTime.now()) || mChannels.getChildCount() == 0) {
@@ -282,6 +294,7 @@ public class LiveTvGuideFragment extends Fragment implements LiveTvGuide, View.O
         }
         // Closing the preview's stream here still lets full screen playback share it, the server keeps it briefly
         if (livePreview != null) livePreview.stop();
+        mHandler.removeCallbacks(refreshWhenStale);
     }
 
     @Override

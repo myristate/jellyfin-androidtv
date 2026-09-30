@@ -47,7 +47,7 @@ import java.util.UUID
  * normal playback, so pressing select to watch it full screen shares the already tuned stream and starts almost at
  * once. Only one channel is previewed at a time, and its stream is closed as soon as the highlight moves on or the
  * guide is left; the server keeps a closed tuner stream around briefly, which is what makes the switch to full
- * screen instant.
+ * screen instant. A preview stops by itself after [MAX_PREVIEW_MS], so a guide left open doesn't hold a tuner for hours.
  */
 @OptIn(UnstableApi::class)
 class GuideLivePreview(
@@ -69,6 +69,12 @@ class GuideLivePreview(
 
 	private val startPending = Runnable { pendingChannel?.let(::start) }
 
+	// Stop without forgetting the highlighted channel: moving the highlight or coming back to the guide previews again
+	private val stopIdle = Runnable {
+		Timber.i("Stopping guide preview of %s after %d minutes", previewChannel, MAX_PREVIEW_MS / 60_000)
+		stop()
+	}
+
 	/** The highlighted channel changed, preview it if the highlight stays there. */
 	fun onChannelHighlighted(channelId: UUID?) {
 		if (channelId == pendingChannel) return
@@ -84,6 +90,7 @@ class GuideLivePreview(
 	/** Stop previewing, for example when the guide is paused or the channel is opened full screen. */
 	fun stop() {
 		handler.removeCallbacks(startPending)
+		handler.removeCallbacks(stopIdle)
 		openJob?.cancel()
 		openJob = null
 		player?.let {
@@ -115,6 +122,7 @@ class GuideLivePreview(
 		stop()
 		previewChannel = channelId
 		PlaybackStartTiming.start("Guide preview $channelId")
+		handler.postDelayed(stopIdle, MAX_PREVIEW_MS)
 
 		openJob = scope.launch {
 			val result = runCatching {
@@ -226,5 +234,8 @@ class GuideLivePreview(
 	companion object {
 		/** How long a channel has to stay highlighted before it is previewed. */
 		const val DWELL_MS = 800L
+
+		/** How long a channel is previewed while the highlight stays on it. */
+		const val MAX_PREVIEW_MS = 2 * 60_000L
 	}
 }
