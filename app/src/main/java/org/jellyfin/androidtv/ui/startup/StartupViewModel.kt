@@ -23,7 +23,6 @@ import org.jellyfin.androidtv.auth.repository.ServerRepository
 import org.jellyfin.androidtv.auth.repository.ServerUserRepository
 import org.jellyfin.androidtv.auth.store.AuthenticationPreferences
 import java.time.Duration
-import java.time.Instant
 import java.util.UUID
 import kotlin.time.Duration.Companion.seconds
 
@@ -60,14 +59,10 @@ class StartupViewModel(
 
 	private val discoveryMutex = Mutex()
 	private var loadUsersJob: Job? = null
-	private val pinFailures = mutableMapOf<UUID, Int>()
-	private val pinLockedUntil = mutableMapOf<UUID, Instant>()
 
 	private companion object {
 		const val PUBLIC_USERS_RETRY_ATTEMPTS = 6
 		const val PUBLIC_USERS_RETRY_MAX_DELAY_SECONDS = 4
-		const val PIN_ATTEMPTS_BEFORE_LOCKOUT = 5
-		val PIN_LOCKOUT: Duration = Duration.ofSeconds(30)
 	}
 
 	fun getServer(id: UUID) = serverRepository.storedServers.value
@@ -97,33 +92,11 @@ class StartupViewModel(
 		authenticationRepository.authenticate(server, PinAuthenticateMethod(user, pin))
 
 	/**
-	 * Seconds until the PIN of [userId] may be tried again, 0 when it can be tried now.
+	 * Seconds until the PIN of [userId] may be tried again, 0 when it can be tried now. The repository counts wrong PINs
+	 * and keeps the lockout with the stored user.
 	 */
-	fun pinLockoutSeconds(userId: UUID): Long {
-		val lockedUntil = pinLockedUntil[userId] ?: return 0
-		return Duration.between(Instant.now(), lockedUntil).seconds.coerceAtLeast(0)
-	}
-
-	/**
-	 * Count a wrong PIN, locking out further attempts for a while after too many.
-	 * @return the lockout in seconds, 0 when the PIN can be tried again straight away.
-	 */
-	fun onPinFailed(userId: UUID): Long {
-		val failures = (pinFailures[userId] ?: 0) + 1
-		if (failures < PIN_ATTEMPTS_BEFORE_LOCKOUT) {
-			pinFailures[userId] = failures
-			return 0
-		}
-
-		pinFailures.remove(userId)
-		pinLockedUntil[userId] = Instant.now() + PIN_LOCKOUT
-		return PIN_LOCKOUT.seconds
-	}
-
-	fun onPinSucceeded(userId: UUID) {
-		pinFailures.remove(userId)
-		pinLockedUntil.remove(userId)
-	}
+	fun pinLockoutSeconds(server: Server, userId: UUID): Long =
+		authenticationRepository.pinLockoutSeconds(server.id, userId)
 
 	fun addServer(address: String) = serverRepository.addServer(address)
 

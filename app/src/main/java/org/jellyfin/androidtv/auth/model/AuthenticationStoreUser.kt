@@ -15,4 +15,7 @@ data class AuthenticationStoreUser(
 	@SerialName("access_token") val accessToken: String? = null,
 	// Salted hash of the profile PIN set on this device, see [org.jellyfin.androidtv.auth.ProfilePin]
 	@SerialName("pin_hash") val pinHash: String? = null,
+	// Wrong PIN attempts since the last correct one, and when the PIN may be tried again (epoch milliseconds)
+	@SerialName("pin_failures") val pinFailures: Int = 0,
+	@SerialName("pin_locked_until") val pinLockedUntil: Long = 0,
 )

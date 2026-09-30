@@ -146,7 +146,7 @@ class UserPinFragment : Fragment() {
 			return
 		}
 
-		val lockout = startupViewModel.pinLockoutSeconds(user.id)
+		val lockout = startupViewModel.pinLockoutSeconds(server, user.id)
 		if (lockout > 0) startLockout(lockout)
 	}
 
@@ -157,10 +157,10 @@ class UserPinFragment : Fragment() {
 			when (state) {
 				AuthenticatingState -> Unit
 				// The activity opens the next screen when the session changes
-				AuthenticatedState -> startupViewModel.onPinSucceeded(user.id)
+				AuthenticatedState -> Unit
 
 				InvalidPinState -> {
-					val lockout = startupViewModel.onPinFailed(user.id)
+					val lockout = startupViewModel.pinLockoutSeconds(server, user.id)
 					if (lockout > 0) startLockout(lockout)
 					else pinState = PinEntryState(message = getString(R.string.pin_wrong))
 				}
@@ -195,7 +195,9 @@ class UserPinFragment : Fragment() {
 		lockoutJob?.cancel()
 		lockoutJob = viewLifecycleOwner.lifecycleScope.launch {
 			for (remaining in seconds downTo 1) {
-				pinState = PinEntryState(message = getString(R.string.pin_locked_out, remaining.toInt()), enabled = false)
+				val message = if (remaining > 60) getString(R.string.pin_locked_out_minutes, ((remaining + 59) / 60).toInt())
+				else getString(R.string.pin_locked_out, remaining.toInt())
+				pinState = PinEntryState(message = message, enabled = false)
 				delay(1.seconds)
 			}
 			pinState = PinEntryState()

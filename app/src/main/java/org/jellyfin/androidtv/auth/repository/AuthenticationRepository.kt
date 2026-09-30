@@ -64,7 +64,23 @@ interface AuthenticationRepository {
 	 * Set the PIN that protects a stored user on this device, or remove it with a null [pin].
 	 */
 	fun setPin(serverId: UUID, userId: UUID, pin: String?): Boolean
+
+	/**
+	 * Seconds until the PIN of a stored user may be tried again after too many wrong attempts, 0 when it can be tried.
+	 */
+	fun pinLockoutSeconds(serverId: UUID, userId: UUID): Long
+
+	/**
+	 * Check the PIN of a stored user without signing in, for example before changing it. Wrong PINs count towards the
+	 * same lockout as signing in.
+	 */
+	fun checkPin(serverId: UUID, userId: UUID, pin: String): Boolean
 }
+
+private const val PIN_ATTEMPTS_BEFORE_LOCKOUT = 5
+
+// Lockout after the 5th wrong PIN, then after each further one
+private val PIN_LOCKOUT_SECONDS = longArrayOf(30, 60, 120, 300, 900, 1800)
 
 class AuthenticationRepositoryImpl(
 	private val jellyfin: Jellyfin,
@@ -109,13 +125,54 @@ class AuthenticationRepositoryImpl(
 
 		return when {
 			accessToken == null -> flowOf(RequireSignInState)
+			// Locked after too many wrong attempts: refuse without checking, so the PIN can't be guessed quickly
+			pinHash != null && authStoreUser.pinLockedUntil > System.currentTimeMillis() -> flowOf(InvalidPinState)
 			pinHash != null && !ProfilePin.verify(pin, pinHash) -> {
 				Timber.w("Wrong PIN entered for user ${user.id}")
+				recordPinFailure(server.id, user.id, authStoreUser)
 				flowOf(InvalidPinState)
 			}
 
-			else -> authenticateToken(server, user.withToken(accessToken))
+			else -> {
+				if (authStoreUser.pinFailures > 0 || authStoreUser.pinLockedUntil > 0) {
+					authenticationStore.putUser(server.id, user.id, authStoreUser.copy(pinFailures = 0, pinLockedUntil = 0))
+				}
+				authenticateToken(server, user.withToken(accessToken))
+			}
 		}
+	}
+
+	/**
+	 * Count a wrong PIN. After [PIN_ATTEMPTS_BEFORE_LOCKOUT] the PIN is locked for a while, and each further wrong PIN
+	 * locks it for longer. Stored with the user, so restarting the app doesn't reset it.
+	 */
+	private fun recordPinFailure(serverId: UUID, userId: UUID, storeUser: AuthenticationStoreUser) {
+		val failures = storeUser.pinFailures + 1
+		val lockouts = failures - PIN_ATTEMPTS_BEFORE_LOCKOUT
+		val lockedUntil = if (lockouts < 0) 0L
+		else System.currentTimeMillis() + PIN_LOCKOUT_SECONDS[lockouts.coerceAtMost(PIN_LOCKOUT_SECONDS.lastIndex)] * 1000
+		authenticationStore.putUser(serverId, userId, storeUser.copy(pinFailures = failures, pinLockedUntil = lockedUntil))
+	}
+
+	override fun checkPin(serverId: UUID, userId: UUID, pin: String): Boolean {
+		val storeUser = authenticationStore.getUser(serverId, userId) ?: return false
+		val pinHash = storeUser.pinHash ?: return true
+		if (storeUser.pinLockedUntil > System.currentTimeMillis()) return false
+
+		if (!ProfilePin.verify(pin, pinHash)) {
+			recordPinFailure(serverId, userId, storeUser)
+			return false
+		}
+
+		if (storeUser.pinFailures > 0 || storeUser.pinLockedUntil > 0) {
+			authenticationStore.putUser(serverId, userId, storeUser.copy(pinFailures = 0, pinLockedUntil = 0))
+		}
+		return true
+	}
+
+	override fun pinLockoutSeconds(serverId: UUID, userId: UUID): Long {
+		val lockedUntil = authenticationStore.getUser(serverId, userId)?.pinLockedUntil ?: return 0
+		return ((lockedUntil - System.currentTimeMillis() + 999) / 1000).coerceAtLeast(0)
 	}
 
 	private fun authenticateCredential(server: Server, username: String, password: String) = flow {

@@ -48,6 +48,8 @@ fun SettingsAuthenticationPinScreen() {
 	var editing by remember { mutableStateOf(false) }
 	var firstPin by remember { mutableStateOf<String?>(null) }
 	var message by remember { mutableStateOf<String?>(null) }
+	// Changing or removing an existing PIN first asks for the current one, set while waiting for it
+	var confirmingRemove by remember { mutableStateOf<Boolean?>(null) }
 
 	fun savePin(pin: String?) {
 		val saved = authenticationRepository.setPin(currentSession.serverId, currentSession.userId, pin)
@@ -72,7 +74,27 @@ fun SettingsAuthenticationPinScreen() {
 			)
 		}
 
-		if (editing) item {
+		val confirming = confirmingRemove
+		if (confirming != null) item {
+			val wrongMessage = stringResource(R.string.pin_wrong)
+			PinPad(
+				title = stringResource(R.string.pin_current),
+				message = message,
+				modifier = Modifier
+					.fillMaxWidth()
+					.padding(vertical = 8.dp),
+				onPinEntered = { pin ->
+					if (authenticationRepository.checkPin(currentSession.serverId, currentSession.userId, pin)) {
+						confirmingRemove = null
+						message = null
+						if (confirming) savePin(null) else editing = true
+					} else {
+						val lockout = authenticationRepository.pinLockoutSeconds(currentSession.serverId, currentSession.userId)
+						message = if (lockout > 0) context.getString(R.string.pin_locked_out, lockout.toInt()) else wrongMessage
+					}
+				},
+			)
+		} else if (editing) item {
 			val newPinTitle = stringResource(R.string.pin_new, ProfilePin.LENGTH)
 			val confirmTitle = stringResource(R.string.pin_confirm)
 			val mismatchMessage = stringResource(R.string.pin_mismatch)
@@ -110,7 +132,7 @@ fun SettingsAuthenticationPinScreen() {
 					onClick = {
 						firstPin = null
 						message = null
-						editing = true
+						if (hasPin) confirmingRemove = false else editing = true
 					},
 					modifier = Modifier.focusKey("set_pin"),
 				)
@@ -120,7 +142,10 @@ fun SettingsAuthenticationPinScreen() {
 				ListButton(
 					leadingContent = { Icon(painterResource(R.drawable.ic_delete), contentDescription = null) },
 					headingContent = { Text(stringResource(R.string.pin_remove)) },
-					onClick = { savePin(null) },
+					onClick = {
+						message = null
+						confirmingRemove = true
+					},
 					modifier = Modifier.focusKey("remove_pin"),
 				)
 			}

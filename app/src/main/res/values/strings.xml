@@ -701,6 +701,8 @@
     <string name="pin_enter_for">Enter the PIN for %1$s</string>
     <string name="pin_wrong">Wrong PIN, try again</string>
     <string name="pin_locked_out">Too many wrong PINs, try again in %1$d seconds</string>
+    <string name="pin_current">Enter your current PIN</string>
+    <string name="pin_locked_out_minutes">Too many wrong PINs, try again in %1$d minutes</string>
     <string name="pin_delete_digit">Delete digit</string>
     <string name="pin_profile">Profile PIN</string>
     <string name="pin_profile_enabled">On, asks for a PIN before opening %1$s</string>
