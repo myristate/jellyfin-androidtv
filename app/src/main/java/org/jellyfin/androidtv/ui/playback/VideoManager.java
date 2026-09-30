@@ -46,6 +46,8 @@ import androidx.media3.ui.CaptionStyleCompat;
 import androidx.media3.ui.PlayerView;
 
 import org.jellyfin.androidtv.R;
+import org.jellyfin.androidtv.BuildConfig;
+import org.jellyfin.androidtv.util.diagnostics.LogRedaction;
 import org.jellyfin.androidtv.util.diagnostics.TimberEventLogger;
 import org.jellyfin.androidtv.data.compat.StreamInfo;
 import org.jellyfin.androidtv.preference.UserPreferences;
@@ -105,9 +107,12 @@ public class VideoManager {
 
         mExoPlayer = configureExoplayerBuilder(activity, assHandler).build();
 
-        // Log every player event (loads, tracks and their support, decoders, drops, errors) under the EventLogger tag.
-        // The lines also go into diagnostics reports sent to the server when playback fails.
-        mExoPlayer.addAnalyticsListener(new TimberEventLogger());
+        // Log every player event (loads, tracks and their support, decoders, drops, errors) under the EventLogger tag,
+        // only in debug builds or with debugging turned on in settings: it is a lot of lines. They also go into the
+        // diagnostics reports sent to the server when playback fails.
+        if (BuildConfig.DEBUG || userPreferences.get(UserPreferences.Companion.getDebuggingEnabled())) {
+            mExoPlayer.addAnalyticsListener(new TimberEventLogger());
+        }
 
         // Volume normalisation (audio night mode).
         if (nightModeEnabled) {
@@ -414,7 +419,8 @@ public class VideoManager {
             Timber.w("Video path is null cannot continue");
             return;
         }
-        Timber.i("Video path set to: %s", path);
+        // The URL carries the access token
+        Timber.i("Video path set to: %s", LogRedaction.redact(path));
 
         try {
             // Add external subtitles

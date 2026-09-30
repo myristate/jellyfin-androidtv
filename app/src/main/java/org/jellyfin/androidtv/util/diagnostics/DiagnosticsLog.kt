@@ -39,7 +39,8 @@ object DiagnosticsLog {
 			}
 			val line = buildString {
 				append(LocalDateTime.now().format(timeFormat)).append(' ').append(level).append(' ')
-				append(tag ?: "-").append(": ").append(message)
+				// Stream URLs in the log carry the access token, and these lines are uploaded to the server
+				append(tag ?: "-").append(": ").append(LogRedaction.redact(message))
 				if (t != null) append('\n').append(Log.getStackTraceString(t).lineSequence().take(8).joinToString("\n"))
 			}
 			synchronized(lines) {
