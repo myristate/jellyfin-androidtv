@@ -46,6 +46,7 @@ import androidx.media3.ui.AspectRatioFrameLayout;
 import androidx.media3.ui.CaptionStyleCompat;
 import androidx.media3.ui.PlayerView;
 
+import org.jellyfin.androidtv.BuildConfig;
 import org.jellyfin.androidtv.R;
 import org.jellyfin.androidtv.data.compat.StreamInfo;
 import org.jellyfin.androidtv.preference.UserPreferences;
@@ -81,6 +82,8 @@ public class VideoManager {
     private PlaybackControllerNotifiable mPlaybackControllerNotifiable;
     private PlaybackOverlayFragmentHelper _helper;
     public ExoPlayer mExoPlayer;
+    private LiveAwareLoadControl loadControl;
+    private volatile boolean liveTv = false;
     private PlayerView mExoPlayerView;
     private Handler mHandler = new Handler();
 
@@ -103,7 +106,9 @@ public class VideoManager {
 
         mExoPlayer = configureExoplayerBuilder(activity, assHandler).build();
 
-        if (userPreferences.get(UserPreferences.Companion.getDebuggingEnabled())) {
+        // Debug builds always log every player event (loads, tracks and their support, decoders, drops, errors),
+        // filter logcat on the EventLogger tag
+        if (BuildConfig.DEBUG || userPreferences.get(UserPreferences.Companion.getDebuggingEnabled())) {
             mExoPlayer.addAnalyticsListener(new EventLogger());
         }
 
@@ -141,7 +146,8 @@ public class VideoManager {
         mExoPlayer.addListener(new Player.Listener() {
             @Override
             public void onPlayerError(@NonNull PlaybackException error) {
-                Timber.e("***** Got error from player");
+                Timber.e(error, "Player error %s", error.getErrorCodeName());
+                PlaybackStartTiming.finish("error " + error.getErrorCodeName());
                 if (mPlaybackControllerNotifiable != null) mPlaybackControllerNotifiable.onError();
                 stopProgressLoop();
             }
@@ -162,12 +168,20 @@ public class VideoManager {
             public void onPlaybackStateChanged(int playbackState) {
                 if (playbackState == Player.STATE_BUFFERING) {
                     Timber.d("Player is buffering");
+                    PlaybackStartTiming.mark("buffering");
                 }
+
+                if (playbackState == Player.STATE_READY) PlaybackStartTiming.mark("ready");
 
                 if (playbackState == Player.STATE_ENDED) {
                     if (mPlaybackControllerNotifiable != null) mPlaybackControllerNotifiable.onCompletion();
                     stopProgressLoop();
                 }
+            }
+
+            @Override
+            public void onRenderedFirstFrame() {
+                PlaybackStartTiming.finish("first frame");
             }
 
             @Override
@@ -233,9 +247,11 @@ public class VideoManager {
         );
         exoPlayerBuilder.setTrackSelector(trackSelector);
 
-        DefaultExtractorsFactory extractorsFactory = new DefaultExtractorsFactory().setTsExtractorTimestampSearchBytes(TsExtractor.DEFAULT_TIMESTAMP_SEARCH_BYTES * 3);
-        extractorsFactory.setConstantBitrateSeekingEnabled(true);
-        extractorsFactory.setConstantBitrateSeekingAlwaysEnabled(true);
+        int tsTimestampSearchBytes = TsExtractor.DEFAULT_TIMESTAMP_SEARCH_BYTES * 3;
+        DefaultExtractorsFactory defaultExtractorsFactory = new DefaultExtractorsFactory().setTsExtractorTimestampSearchBytes(tsTimestampSearchBytes);
+        defaultExtractorsFactory.setConstantBitrateSeekingEnabled(true);
+        defaultExtractorsFactory.setConstantBitrateSeekingAlwaysEnabled(true);
+        ExtractorsFactory extractorsFactory = new LiveTvExtractorsFactory(defaultExtractorsFactory, tsTimestampSearchBytes, () -> liveTv);
         DefaultDataSource.Factory dataSourceFactory = new DefaultDataSource.Factory(context, exoPlayerHttpDataSourceFactory);
         if (assHandler != null) {
             AssSubtitleParserFactory assSubtitleParserFactory = new AssSubtitleParserFactory(assHandler);
@@ -250,18 +266,19 @@ public class VideoManager {
         }
 
         BufferLength bufferLength = userPreferences.get(UserPreferences.Companion.getBufferLength());
-        DefaultLoadControl loadControl;
+        DefaultLoadControl defaultLoadControl;
         if (bufferLength == BufferLength.LARGE) {
-            loadControl = new DefaultLoadControl.Builder()
+            defaultLoadControl = new DefaultLoadControl.Builder()
                     .setBufferDurationsMs(50_000, 120_000, 2_500, 5_000)
                     .build();
         } else if (bufferLength == BufferLength.EXTRA_LARGE) {
-            loadControl = new DefaultLoadControl.Builder()
+            defaultLoadControl = new DefaultLoadControl.Builder()
                     .setBufferDurationsMs(80_000, 240_000, 5_000, 10_000)
                     .build();
         } else {
-            loadControl = new DefaultLoadControl();
+            defaultLoadControl = new DefaultLoadControl();
         }
+        loadControl = new LiveAwareLoadControl(defaultLoadControl);
         exoPlayerBuilder.setLoadControl(loadControl);
 
         exoPlayerBuilder.setAudioAttributes(new AudioAttributes.Builder()
@@ -270,6 +287,14 @@ public class VideoManager {
                 .build(), true);
 
         return exoPlayerBuilder;
+    }
+
+    /**
+     * Treat the next stream as Live TV: start with a shorter buffer and only use the main audio stream.
+     */
+    public void setLiveTv(boolean liveTv) {
+        this.liveTv = liveTv;
+        loadControl.setLiveTv(liveTv);
     }
 
     public boolean isInitialized() {
@@ -419,6 +444,7 @@ public class VideoManager {
                     .setSubtitleConfigurations(subtitleConfigurations)
                     .build();
 
+            PlaybackStartTiming.mark("prepare");
             mExoPlayer.setMediaItem(mediaItem);
             mExoPlayer.prepare();
         } catch (IllegalStateException e) {

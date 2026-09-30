@@ -123,9 +123,11 @@ public class PlaybackController implements PlaybackControllerNotifiable {
     private long lastPlaybackError = 0;
 
     // Some live TV channels never start (the tuner opens but no picture arrives), retry them before giving up
-    private static final long LIVE_TV_START_TIMEOUT = 20000;
+    private static final long LIVE_TV_START_TIMEOUT = 10000;
     private static final int LIVE_TV_START_RETRIES = 2;
     private int liveTvStartRetries = 0;
+    // Increases with every play and stop, so responses for a replaced request can be recognised and dropped
+    private int playRequest = 0;
     private final Runnable liveTvStartWatchdog = this::onLiveTvStartTimeout;
 
     private Display.Mode[] mDisplayModes;
@@ -172,6 +174,10 @@ public class PlaybackController implements PlaybackControllerNotifiable {
         mItems = items;
         mCurrentIndex = 0;
         liveTvStartRetries = 0;
+        // A new channel or item starts with a clean slate: an error on the last one shouldn't force transcoding here
+        playbackRetries = 0;
+        directStreamLiveTv = userPreferences.getValue().get(UserPreferences.Companion.getLiveTvDirectPlayEnabled());
+        if (mCurrentOptions != null) mCurrentOptions.setSubtitleStreamIndex(null);
     }
 
     public float getPlaybackSpeed() {
@@ -275,7 +281,7 @@ public class PlaybackController implements PlaybackControllerNotifiable {
                 Utils.showToast(mFragment.getContext(), mFragment.getString(R.string.player_error));
             Timber.i("Player error encountered - retrying");
             stop();
-            play(mCurrentPosition);
+            play(isLiveTv ? 0 : mCurrentPosition);
         } else {
             mPlaybackState = PlaybackState.ERROR;
             if (mFragment != null) {
@@ -498,19 +504,20 @@ public class PlaybackController implements PlaybackControllerNotifiable {
                 }
 
                 isLiveTv = item.getType() == BaseItemKind.TV_CHANNEL;
+                playRequest++;
+                if (isLiveTv) position = 0;
+                PlaybackStartTiming.start((isLiveTv ? "Live TV " : "") + item.getName());
                 startSpinner();
 
                 // undo setting mSeekPosition for liveTV
                 if (isLiveTv) mSeekPosition = -1;
+                if (mVideoManager != null) mVideoManager.setLiveTv(isLiveTv);
 
                 VideoOptions internalOptions = buildExoPlayerOptions(forcedSubtitleIndex, forcedAudioLanguage, item);
 
                 playInternal(getCurrentlyPlayingItem(), position, internalOptions);
                 mPlaybackState = PlaybackState.BUFFERING;
-                if (isLiveTv) {
-                    mHandler.removeCallbacks(liveTvStartWatchdog);
-                    mHandler.postDelayed(liveTvStartWatchdog, LIVE_TV_START_TIMEOUT);
-                }
+                mHandler.removeCallbacks(liveTvStartWatchdog);
                 mFragment.setPlayPauseActionState(0);
                 mFragment.setCurrentTime(position);
 
@@ -568,19 +575,24 @@ public class PlaybackController implements PlaybackControllerNotifiable {
             TvManager.setLastLiveTvChannel(item.getId());
             //internal/exo player
             Timber.i("Using internal player for Live TV");
+            final int request = playRequest;
             playbackManager.getValue().getVideoStreamInfo(mFragment, internalOptions, position * 10000, new Response<StreamInfo>(mFragment.getLifecycle()) {
                 @Override
                 public void onResponse(StreamInfo response) {
-                    if (!isActive()) return;
-                    if (mVideoManager == null)
+                    if (!isActive() || request != playRequest || mVideoManager == null) {
+                        // The channel was changed or playback left while tuning: release the tuner it opened
+                        Timber.i("Dropping stream info for a replaced Live TV request");
+                        PlaybackControllerHelperKt.closeAbandonedLiveStream(PlaybackController.this, response);
                         return;
+                    }
+                    PlaybackStartTiming.mark("stream info " + response.getPlayMethod());
                     mCurrentOptions = internalOptions;
                     startItem(item, position, response);
                 }
 
                 @Override
                 public void onError(Exception exception) {
-                    if (!isActive()) return;
+                    if (!isActive() || request != playRequest) return;
                     handlePlaybackInfoError(exception);
                 }
             });
@@ -695,6 +707,11 @@ public class PlaybackController implements PlaybackControllerNotifiable {
 
         if (mVideoManager != null) {
             mVideoManager.setMediaStreamInfo(api.getValue(), response);
+            if (isLiveTv) {
+                // Give the stream a limited time to show a picture from here, see onLiveTvStartTimeout
+                mHandler.removeCallbacks(liveTvStartWatchdog);
+                mHandler.postDelayed(liveTvStartWatchdog, LIVE_TV_START_TIMEOUT);
+            }
         }
 
         PlaybackControllerHelperKt.applyMediaSegments(this, item, () -> {
@@ -910,7 +927,10 @@ public class PlaybackController implements PlaybackControllerNotifiable {
         if (mPlaybackState != PlaybackState.IDLE && mPlaybackState != PlaybackState.UNDEFINED) {
             mPlaybackState = PlaybackState.IDLE;
 
-            if (mVideoManager != null && mVideoManager.isPlaying()) mVideoManager.stopPlayback();
+            playRequest++;
+            // Stop the player in every state: a buffering or paused player left running keeps the old stream open
+            // and later reports completion or an error for a channel that is no longer playing
+            if (mVideoManager != null) mVideoManager.stopPlayback();
             if (getCurrentlyPlayingItem() != null && mCurrentStreamInfo != null) {
                 Long mbPos = mCurrentPosition * 10000;
                 reportingHelper.getValue().reportStopped(mFragment, getCurrentlyPlayingItem(), mCurrentStreamInfo, mbPos);
@@ -1293,12 +1313,19 @@ public class PlaybackController implements PlaybackControllerNotifiable {
             } else if (getCurrentMediaSource().getDefaultAudioStreamIndex() != null) {
                 eligibleAudioTrack = getCurrentMediaSource().getDefaultAudioStreamIndex();
             }
-            switchAudioStream(eligibleAudioTrack);
+            // Live TV keeps the player's own audio choice: server stream indexes don't match the player's tracks for
+            // a transport stream, and a failed switch restarts the channel
+            if (!isLiveTv) switchAudioStream(eligibleAudioTrack);
         }
     }
 
     @Override
     public void onError() {
+        if (mPlaybackState == PlaybackState.IDLE) {
+            Timber.i("Ignoring player error after stop");
+            return;
+        }
+
         if (mFragment == null) {
             playerErrorEncountered();
             return;
@@ -1317,6 +1344,13 @@ public class PlaybackController implements PlaybackControllerNotifiable {
     @Override
     public void onCompletion() {
         Timber.i("On Completion fired");
+        if (mPlaybackState == PlaybackState.IDLE) return;
+        if (isLiveTv) {
+            // A live stream has no end: the server or tuner dropped it, so tune again
+            Timber.w("Live TV stream ended unexpectedly");
+            if (!retryLiveTvStart()) playerErrorEncountered();
+            return;
+        }
         itemComplete();
     }
 

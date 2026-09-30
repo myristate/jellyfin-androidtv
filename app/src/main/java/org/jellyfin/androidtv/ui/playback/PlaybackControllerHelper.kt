@@ -1,6 +1,7 @@
 package org.jellyfin.androidtv.ui.playback
 
 import androidx.annotation.OptIn
+import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.C
 import androidx.media3.common.TrackSelectionOverride
@@ -12,8 +13,11 @@ import org.jellyfin.androidtv.ui.playback.segment.MediaSegmentAction
 import org.jellyfin.androidtv.ui.playback.segment.MediaSegmentRepository
 import org.jellyfin.androidtv.util.sdk.end
 import org.jellyfin.androidtv.util.sdk.start
+import org.jellyfin.androidtv.data.compat.StreamInfo
+import org.koin.java.KoinJavaComponent
 import org.jellyfin.sdk.api.client.ApiClient
 import org.jellyfin.sdk.api.client.extensions.liveTvApi
+import org.jellyfin.sdk.api.client.extensions.mediaInfoApi
 import org.jellyfin.sdk.model.api.BaseItemDto
 import org.jellyfin.sdk.model.api.MediaSegmentDto
 import org.jellyfin.sdk.model.api.MediaStreamType
@@ -21,6 +25,20 @@ import org.jellyfin.sdk.model.api.SubtitleDeliveryMethod
 import org.koin.android.ext.android.inject
 import timber.log.Timber
 import java.util.UUID
+
+/**
+ * Close the live stream a playback info request opened when the app no longer wants it, for example after a quick
+ * channel change. Without this the server keeps the tuner busy until the stream times out.
+ */
+fun PlaybackController.closeAbandonedLiveStream(streamInfo: StreamInfo) {
+	val liveStreamId = streamInfo.mediaSource?.liveStreamId ?: return
+	val api = KoinJavaComponent.get<ApiClient>(ApiClient::class.java)
+
+	ProcessLifecycleOwner.get().lifecycleScope.launch(Dispatchers.IO) {
+		runCatching { api.mediaInfoApi.closeLiveStream(liveStreamId) }
+			.onFailure { Timber.w(it, "Unable to close abandoned live stream %s", liveStreamId) }
+	}
+}
 
 fun PlaybackController.getLiveTvChannel(
 	id: UUID,

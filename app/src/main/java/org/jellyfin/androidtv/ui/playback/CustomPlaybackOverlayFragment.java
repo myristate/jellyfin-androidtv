@@ -457,6 +457,8 @@ public class CustomPlaybackOverlayFragment extends Fragment implements LiveTvGui
                 return true;
             }
         } else if (event.getAction() == KeyEvent.ACTION_DOWN) {
+            if (handleChannelKey(keyCode)) return true;
+
             if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER) {
                 event.startTracking();
                 return true;
@@ -530,6 +532,8 @@ public class CustomPlaybackOverlayFragment extends Fragment implements LiveTvGui
                         return true;
                     }
                 }
+
+                if (handleChannelKey(keyCode)) return true;
 
                 if (keyCode == KeyEvent.KEYCODE_MEDIA_STOP) {
                     closePlayer();
@@ -666,6 +670,40 @@ public class CustomPlaybackOverlayFragment extends Fragment implements LiveTvGui
 
     public void switchChannel(UUID id) {
         switchChannel(id, true);
+    }
+
+    /**
+     * Channel up and down step through the guide's channel order during Live TV, page up and down do the same on a
+     * keyboard. Returns whether the key was handled.
+     */
+    private boolean handleChannelKey(int keyCode) {
+        PlaybackController playbackController = playbackControllerContainer.getValue().getPlaybackController();
+        if (mGuideVisible || playbackController == null || !playbackController.isLiveTv()) return false;
+
+        if (keyCode == KeyEvent.KEYCODE_CHANNEL_UP || keyCode == KeyEvent.KEYCODE_PAGE_UP) {
+            changeChannelBy(1);
+            return true;
+        }
+        if (keyCode == KeyEvent.KEYCODE_CHANNEL_DOWN || keyCode == KeyEvent.KEYCODE_PAGE_DOWN) {
+            changeChannelBy(-1);
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Tune to the channel [offset] places away in the guide's channel list, wrapping round at either end.
+     */
+    private void changeChannelBy(int offset) {
+        BaseItemDto current = playbackControllerContainer.getValue().getPlaybackController().getCurrentlyPlayingItem();
+        int count = TvManager.getAllChannels().size();
+        int index = current == null ? -1 : TvManager.getAllChannelsIndex(current.getId());
+        if (index < 0 || count < 2) return;
+
+        BaseItemDto next = TvManager.getChannel(((index + offset) % count + count) % count);
+        if (next == null) return;
+        Timber.i("Channel %s to %s", offset > 0 ? "up" : "down", next.getName());
+        switchChannel(next.getId(), false);
     }
 
     public void switchChannel(UUID id, boolean hideGuide) {

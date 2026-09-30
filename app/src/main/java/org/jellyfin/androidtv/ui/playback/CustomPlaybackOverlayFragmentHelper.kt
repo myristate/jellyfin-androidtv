@@ -61,9 +61,13 @@ fun CustomPlaybackOverlayFragment.refreshSelectedProgram() {
 	}
 }
 
+// The channel most recently asked for, so a slow lookup for an earlier channel doesn't start it after a quick change
+private var requestedChannelId: UUID? = null
+
 fun CustomPlaybackOverlayFragment.playChannel(id: UUID) {
 	val api by inject<ApiClient>()
 	val playbackControllerContainer by inject<PlaybackControllerContainer>()
+	requestedChannelId = id
 
 	lifecycleScope.launch {
 		runCatching {
@@ -72,8 +76,13 @@ fun CustomPlaybackOverlayFragment.playChannel(id: UUID) {
 			}
 		}.fold(
 			onSuccess = { channel ->
-				playbackControllerContainer.playbackController?.setItems(listOf(channel))
-				playbackControllerContainer.playbackController?.play(0)
+				if (requestedChannelId != id) return@fold
+				playbackControllerContainer.playbackController?.apply {
+					// Reset whatever state the last channel left behind, play() ignores requests while buffering
+					stop()
+					setItems(listOf(channel))
+					play(0)
+				}
 			},
 			onFailure = {
 				Toast.makeText(
