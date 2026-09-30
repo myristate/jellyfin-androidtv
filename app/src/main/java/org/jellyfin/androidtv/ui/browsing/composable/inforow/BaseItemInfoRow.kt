@@ -146,6 +146,18 @@ private fun List<MediaStream>.getDefault(type: MediaStreamType, defaultIndex: In
 	return firstOrNull { it.type == type }
 }
 
+private val videoCodecNames = mapOf(
+	"hevc" to "HEVC",
+	"h265" to "HEVC",
+	"h264" to "H.264",
+	"avc" to "H.264",
+	"av1" to "AV1",
+	"vp9" to "VP9",
+	"mpeg2video" to "MPEG-2",
+	"mpeg4" to "MPEG-4",
+	"vc1" to "VC-1",
+)
+
 @Composable
 fun InfoRowMediaDetails(mediaSource: MediaSourceInfo) {
 	val videoStream = mediaSource.mediaStreams?.getDefault(MediaStreamType.VIDEO)
@@ -172,6 +184,12 @@ fun InfoRowMediaDetails(mediaSource: MediaSourceInfo) {
 		}
 	}
 
+	// Container, such as MKV or MP4 (Finly)
+	val container = mediaSource.container?.substringBefore(',')?.uppercase()
+	if (!container.isNullOrBlank()) {
+		InfoRowItem(contentDescription = null, colors = InfoRowColors.Default) { Text(container) }
+	}
+
 	// Video resolution
 	if (videoStream?.width != null && videoStream.height != null) {
 		val resolution = getResolutionName(
@@ -188,20 +206,31 @@ fun InfoRowMediaDetails(mediaSource: MediaSourceInfo) {
 		}
 	}
 
-	// Video range
+	// Video codec (Finly)
+	val videoCodec = videoStream?.codec?.lowercase()?.let { videoCodecNames[it] ?: it.uppercase() }
+	if (!videoCodec.isNullOrBlank()) {
+		InfoRowItem(contentDescription = null, colors = InfoRowColors.Default) { Text(videoCodec) }
+	}
+
+	// Video range, Dolby Vision with its profile such as P8.1 (Finly)
+	val dolbyVision = stringResource(R.string.dolby_vision).let { name ->
+		val profile = videoStream?.dvProfile ?: return@let name
+		val compatibility = videoStream.dvBlSignalCompatibilityId?.takeIf { it > 0 }?.let { ".$it" }.orEmpty()
+		"$name P$profile$compatibility"
+	}
 	val videoRangeNames: Set<String> = when (videoStream?.videoRangeType) {
 		VideoRangeType.SDR -> setOf(stringResource(R.string.sdr))
 		VideoRangeType.HDR10 -> setOf(stringResource(R.string.hdr10))
 		VideoRangeType.HDR10_PLUS -> setOf(stringResource(R.string.hdr10_plus))
 		VideoRangeType.HLG -> setOf(stringResource(R.string.hlg))
-		VideoRangeType.DOVI -> setOf(stringResource(R.string.dolby_vision))
-		VideoRangeType.DOVI_WITH_HDR10 -> setOf(stringResource(R.string.dolby_vision), stringResource(R.string.hdr10))
-		VideoRangeType.DOVI_WITH_HLG -> setOf(stringResource(R.string.dolby_vision), stringResource(R.string.hlg))
-		VideoRangeType.DOVI_WITH_SDR -> setOf(stringResource(R.string.dolby_vision), stringResource(R.string.sdr))
+		VideoRangeType.DOVI -> setOf(dolbyVision)
+		VideoRangeType.DOVI_WITH_HDR10 -> setOf(dolbyVision, stringResource(R.string.hdr10))
+		VideoRangeType.DOVI_WITH_HLG -> setOf(dolbyVision, stringResource(R.string.hlg))
+		VideoRangeType.DOVI_WITH_SDR -> setOf(dolbyVision, stringResource(R.string.sdr))
 		VideoRangeType.DOVI_WITH_EL -> setOf(stringResource(R.string.dolby_vision_with_el))
-		VideoRangeType.DOVI_WITH_HDR10_PLUS -> setOf(stringResource(R.string.dolby_vision), stringResource(R.string.hdr10_plus))
+		VideoRangeType.DOVI_WITH_HDR10_PLUS -> setOf(dolbyVision, stringResource(R.string.hdr10_plus))
 		VideoRangeType.DOVI_WITH_ELHDR10_PLUS -> setOf(stringResource(R.string.dolby_vision_with_el), stringResource(R.string.hdr10_plus))
-		VideoRangeType.DOVI_INVALID -> setOf(stringResource(R.string.dolby_vision))
+		VideoRangeType.DOVI_INVALID -> setOf(dolbyVision)
 		else -> emptySet()
 	}
 	videoRangeNames.forEach {

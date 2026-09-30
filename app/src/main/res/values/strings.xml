@@ -145,14 +145,14 @@
     <string name="lbl_display_preferences">Display preferences</string>
     <string name="lbl__continuing"> CONTINUING </string>
     <string name="lbl_ended"> ENDED </string>
-    <string name="lbl_filters">Live TV filters</string>
+    <string name="lbl_filters">TV filters</string>
     <string name="msg_subtitles_loading">Subtitles loading…</string>
     <string name="msg_unable_load_subs">Unable to load subtitle</string>
     <string name="msg_burn_sub_warning">Burning in subtitles. This may take a few seconds…</string>
     <string name="lbl_no_recordings">No recordings available</string>
-    <string name="lbl_live_tv_guide">Live TV guide</string>
+    <string name="lbl_live_tv_guide">TV guide</string>
     <string name="lbl_recorded_tv">Recorded TV</string>
-    <string name="pref_live_tv_cat">Live TV</string>
+    <string name="pref_live_tv_cat">TV</string>
     <string name="msg_error_live_stream">Error streaming live TV. Will re-try…</string>
     <string name="lbl_direct_stream_live">Direct stream live TV</string>
     <string name="lbl_programs">Programs</string>
@@ -428,7 +428,7 @@
     <string name="home_section_resume_audio">Continue listening</string>
     <string name="home_section_active_recordings">Active recordings</string>
     <string name="home_section_next_up">Next up</string>
-    <string name="home_section_livetv">Live TV</string>
+    <string name="home_section_livetv">TV</string>
     <string name="home_section_none">None</string>
     <string name="home_section_i">Home section %1$d</string>
     <string name="home_next_up_max_days">Next up date cutoff</string>
@@ -491,7 +491,7 @@
     <string name="pref_refresh_rate_scale_on_tv">Scale on TV</string>
     <string name="pref_refresh_rate_scale_on_device">Scale on device</string>
     <string name="action_connect">Connect</string>
-    <string name="live_tv_preferences">Live TV options</string>
+    <string name="live_tv_preferences">TV options</string>
     <string name="app_notification_uimode_invalid">This app is optimized for televisions. We recommend using our mobile app on other devices.</string>
     <string name="server_unsupported_notification">This server uses Finly version %1$s which is unsupported. Please update to Finly %2$s or newer to continue using the app.</string>
     <string name="pref_telemetry_category">Crash reporting</string>
