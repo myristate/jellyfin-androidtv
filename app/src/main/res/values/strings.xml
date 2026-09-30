@@ -750,6 +750,7 @@
     <string name="kids_tag_failed">Could not change the tags of %1$s</string>
     <string name="msg_live_tv_retrying">The channel didn\'t start, trying again…</string>
     <string name="msg_live_tv_off_air">This channel isn\'t broadcasting right now</string>
+    <string name="msg_live_tv_busy">All the TV tuners are in use right now. Try again when a recording or another TV has finished</string>
     <string name="msg_live_tv_off_air_short">Not broadcasting right now</string>
     <string name="msg_live_tv_failed">This channel couldn\'t be started. Try again in a moment or pick another channel</string>
     <string name="change_server">Change server (%1$s)</string>
