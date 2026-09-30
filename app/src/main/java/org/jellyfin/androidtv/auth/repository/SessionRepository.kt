@@ -138,7 +138,7 @@ class SessionRepositoryImpl(
 		if (session == null) return
 
 		// A PIN protected profile is never signed in to automatically, the user picker asks for the PIN instead
-		if (authenticationStore.getUser(session.serverId, session.userId)?.pinHash != null) {
+		if (authenticationStore.getUser(session.serverId, session.userId)?.serverPin == true) {
 			Timber.i("Not restoring session for PIN protected user ${session.userId}")
 			return
 		}
@@ -193,7 +193,7 @@ class SessionRepositoryImpl(
 
 		val session = currentSession.value ?: return false
 		if (Duration.between(since, Instant.now()) < SessionRepository.PIN_LOCK_TIMEOUT) return false
-		if (authenticationStore.getUser(session.serverId, session.userId)?.pinHash == null) return false
+		if (authenticationStore.getUser(session.serverId, session.userId)?.serverPin != true) return false
 
 		Timber.i("Locking PIN protected profile of user ${session.userId} after the TV was left idle")
 		destroyCurrentSession()

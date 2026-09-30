@@ -702,12 +702,15 @@
     <string name="pin_wrong">Wrong PIN, try again</string>
     <string name="pin_locked_out">Too many wrong PINs, try again in %1$d seconds</string>
     <string name="pin_current">Enter your current PIN</string>
+    <string name="pin_current_password">Enter your password to set a PIN</string>
+    <string name="pin_current_wrong">That isn\'t right, try again</string>
+    <string name="pin_continue">Continue</string>
     <string name="pin_locked_out_minutes">Too many wrong PINs, try again in %1$d minutes</string>
     <string name="pin_delete_digit">Delete digit</string>
     <string name="pin_profile">Profile PIN</string>
     <string name="pin_profile_enabled">On, asks for a PIN before opening %1$s</string>
     <string name="pin_profile_disabled">Off, anyone can open %1$s</string>
-    <string name="pin_profile_description">The PIN is only kept on this device. A profile with a PIN locks again after the app has been in the background for %1$d minutes.</string>
+    <string name="pin_profile_description">Your PIN is kept on the server, so it works on every TV and in the web app at home. A profile with a PIN locks again when the TV has been left for %1$d minutes.</string>
     <string name="pin_set">Set a PIN</string>
     <string name="pin_change">Change PIN</string>
     <string name="pin_remove">Remove PIN</string>
