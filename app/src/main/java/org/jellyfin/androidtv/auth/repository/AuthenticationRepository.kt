@@ -137,7 +137,8 @@ class AuthenticationRepositoryImpl(
 		if (authenticationPreferences[AuthenticationPreferences.alwaysAuthenticate]) return flowOf(RequireSignInState)
 
 		val authStoreUser = authenticationStore.getUser(server.id, user.id)
-		val hasPin = if (user is PublicUser) user.hasPin else authStoreUser?.serverPin == true
+		// Either the server's user list or what the server said last is enough to ask for the PIN (Finly)
+		val hasPin = (user is PublicUser && user.hasPin) || authStoreUser?.serverPin == true
 		return when {
 			// A profile with a PIN always asks for it, also when this device has a stored access token
 			hasPin -> flowOf(RequirePinState)
@@ -189,6 +190,7 @@ class AuthenticationRepositoryImpl(
 
 		emitAll(authenticateAuthenticationResult(server, result))
 
+		// Stored now, also for a profile signed in to for the first time on this device
 		authenticationStore.getUser(server.id, user.id)?.let { stored ->
 			authenticationStore.putUser(server.id, user.id, stored.copy(serverPin = true, pinFailures = 0, pinLockedUntil = 0))
 		}
@@ -268,7 +270,8 @@ class AuthenticationRepositoryImpl(
 		)
 
 		authenticateFinish(server, userInfo, accessToken)
-		val result = setActiveSession(user, server)
+		// The user just signed in with their PIN, password or Quick Connect, so a PIN isn't asked for again (Finly)
+		val result = setActiveSession(user, server, unlocked = true)
 		if (result == SessionSwitchResult.SWITCHED) {
 			emit(AuthenticatedState)
 		} else {
@@ -318,11 +321,13 @@ class AuthenticationRepositoryImpl(
 		!server.versionSupported -> ServerVersionNotSupported(server)
 		// Don't ask to sign in again when the stored access token could still be valid
 		this == SessionSwitchResult.SERVER_UNAVAILABLE -> ServerUnavailableState
+		// The server says the profile has a PIN (Finly)
+		this == SessionSwitchResult.PIN_REQUIRED -> RequirePinState
 		else -> RequireSignInState
 	}
 
-	private suspend fun setActiveSession(user: User, server: Server): SessionSwitchResult {
-		val result = sessionRepository.switchCurrentSession(server.id, user.id)
+	private suspend fun setActiveSession(user: User, server: Server, unlocked: Boolean = false): SessionSwitchResult {
+		val result = sessionRepository.switchCurrentSession(server.id, user.id, unlocked)
 
 		if (result == SessionSwitchResult.SWITCHED) {
 			// Update last use in store
@@ -349,10 +354,14 @@ class AuthenticationRepositoryImpl(
 				hasPassword = user["HasConfiguredPassword"]?.jsonPrimitive?.booleanOrNull ?: true,
 				hasPin = user["HasPin"]?.jsonPrimitive?.booleanOrNull ?: false,
 			)
-			rememberServerPin(session.serverId, session.userId, options.hasPin)
+			authenticationStore.rememberServerPin(session.serverId, session.userId, options.hasPin)
 			options
 		} catch (err: ApiClientException) {
 			Timber.w(err, "Unable to get sign in options")
+			null
+		} catch (err: IllegalArgumentException) {
+			// An unexpected body, kotlinx.serialization's SerializationException is an IllegalArgumentException
+			Timber.w(err, "Unable to read sign in options")
 			null
 		}
 	}
@@ -366,7 +375,7 @@ class AuthenticationRepositoryImpl(
 				queryParameters = mapOf("userId" to session.userId),
 				requestBody = UpdateUserPinBody(currentPw = current, newPin = pin, resetPin = pin == null),
 			)
-			rememberServerPin(session.serverId, session.userId, pin != null)
+			authenticationStore.rememberServerPin(session.serverId, session.userId, pin != null)
 			PinChangeResult.SAVED
 		} catch (err: InvalidStatusException) {
 			Timber.w(err, "Unable to change the PIN")
@@ -375,11 +384,6 @@ class AuthenticationRepositoryImpl(
 			Timber.w(err, "Unable to change the PIN")
 			PinChangeResult.FAILED
 		}
-	}
-
-	private fun rememberServerPin(serverId: UUID, userId: UUID, hasPin: Boolean) {
-		val stored = authenticationStore.getUser(serverId, userId) ?: return
-		if (stored.serverPin != hasPin) authenticationStore.putUser(serverId, userId, stored.copy(serverPin = hasPin))
 	}
 
 	override fun logout(user: User): Boolean {

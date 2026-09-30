@@ -19,11 +19,12 @@ import org.jellyfin.androidtv.preference.constant.UserSelectBehavior.LAST_USER
 import org.jellyfin.androidtv.preference.constant.UserSelectBehavior.SPECIFIC_USER
 import org.jellyfin.androidtv.util.sdk.forUser
 import org.jellyfin.sdk.api.client.ApiClient
+import org.jellyfin.sdk.api.client.HttpMethod
 import org.jellyfin.sdk.api.client.exception.ApiClientException
 import org.jellyfin.sdk.api.client.exception.InvalidStatusException
 import org.jellyfin.sdk.api.client.extensions.clientLogApi
-import org.jellyfin.sdk.api.client.extensions.userApi
 import org.jellyfin.sdk.model.DeviceInfo
+import org.jellyfin.sdk.model.api.UserDto
 import org.jellyfin.sdk.model.serializer.toUUIDOrNull
 import timber.log.Timber
 import java.net.HttpURLConnection
@@ -56,6 +57,11 @@ enum class SessionSwitchResult {
 	 * The server rejected the session or is not supported.
 	 */
 	FAILED,
+
+	/**
+	 * The profile has a PIN (Finly) and wasn't just unlocked with it or a password, it has to be asked for first.
+	 */
+	PIN_REQUIRED,
 }
 
 interface SessionRepository {
@@ -63,7 +69,13 @@ interface SessionRepository {
 	val state: StateFlow<SessionRepositoryState>
 
 	suspend fun restoreSession(destroyOnly: Boolean)
-	suspend fun switchCurrentSession(serverId: UUID, userId: UUID): SessionSwitchResult
+
+	/**
+	 * Switch to the stored session of a user. [unlocked] (Finly) is true right after the user signed in with their PIN,
+	 * password or Quick Connect; otherwise a profile the server says has a PIN is not opened and
+	 * [SessionSwitchResult.PIN_REQUIRED] is returned.
+	 */
+	suspend fun switchCurrentSession(serverId: UUID, userId: UUID, unlocked: Boolean = false): SessionSwitchResult
 	fun destroyCurrentSession()
 
 	/**
@@ -153,7 +165,7 @@ class SessionRepositoryImpl(
 		}
 	}
 
-	override suspend fun switchCurrentSession(serverId: UUID, userId: UUID): SessionSwitchResult {
+	override suspend fun switchCurrentSession(serverId: UUID, userId: UUID, unlocked: Boolean): SessionSwitchResult {
 		// No change in user - don't switch
 		if (currentSession.value?.userId == userId) {
 			Timber.d("Current session user is the same as the requested user")
@@ -170,7 +182,7 @@ class SessionRepositoryImpl(
 			return SessionSwitchResult.FAILED
 		}
 
-		val result = setCurrentSession(session)
+		val result = setCurrentSession(session, unlocked)
 		_state.value = SessionRepositoryState.READY
 		return result
 	}
@@ -207,10 +219,13 @@ class SessionRepositoryImpl(
 	private fun clearCurrentSession() {
 		userRepository.setCurrentUser(null)
 		serverRepository.setCurrentServer(null)
+		// (Finly) Drop the access token from the shared API client too, so nothing can use a locked or signed out
+		// profile's session any more
+		userApiClient.applySession(null)
 		_currentSession.value = null
 	}
 
-	private suspend fun setCurrentSession(session: Session?): SessionSwitchResult {
+	private suspend fun setCurrentSession(session: Session?, unlocked: Boolean = false): SessionSwitchResult {
 		var server: Server? = null
 
 		if (session != null) {
@@ -233,9 +248,23 @@ class SessionRepositoryImpl(
 		val applied = userApiClient.applySession(session, deviceInfo)
 		if (applied && session != null) {
 			try {
-				val user = withContext(Dispatchers.IO) {
-					userApiClient.userApi.getCurrentUser().content
+				// Read the raw user to also get Finly's HasPin flag, which the SDK model doesn't have
+				val response = withContext(Dispatchers.IO) {
+					userApiClient.request(HttpMethod.GET, "/Users/Me")
 				}
+				val user = response.createContent<UserDto>()
+
+				// (Finly) The PIN may have been set on another device, and a hidden profile never shows in the public
+				// user list that refreshes this flag otherwise. When the server doesn't say, go by what it said last.
+				val hasPin = response.hasPin()
+				if (hasPin != null) authenticationStore.rememberServerPin(session.serverId, session.userId, hasPin)
+				val needsPin = hasPin ?: (authenticationStore.getUser(session.serverId, session.userId)?.serverPin == true)
+				if (needsPin && !unlocked) {
+					Timber.i("Not opening PIN protected profile of user ${session.userId} without its PIN")
+					clearCurrentSession()
+					return SessionSwitchResult.PIN_REQUIRED
+				}
+
 				userRepository.setCurrentUser(user)
 				serverRepository.setCurrentServer(server)
 			} catch (err: InvalidStatusException) {
