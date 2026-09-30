@@ -2,6 +2,7 @@ package org.jellyfin.androidtv
 
 import android.content.Context
 import androidx.startup.Initializer
+import org.jellyfin.androidtv.util.diagnostics.DiagnosticsLog
 import timber.log.Timber
 
 class LogInitializer : Initializer<Unit> {
@@ -21,6 +22,8 @@ class LogInitializer : Initializer<Unit> {
 
 		// Initialize the logging library
 		Timber.plant(Timber.DebugTree())
+		// Recent log lines kept in memory for diagnostics reports sent to the server
+		Timber.plant(DiagnosticsLog.tree)
 		Timber.i("Debug tree planted")
 	}
 

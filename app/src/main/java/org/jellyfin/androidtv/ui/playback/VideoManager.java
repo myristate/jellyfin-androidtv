@@ -38,7 +38,6 @@ import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.analytics.AnalyticsListener;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector;
-import androidx.media3.exoplayer.util.EventLogger;
 import androidx.media3.extractor.DefaultExtractorsFactory;
 import androidx.media3.extractor.ExtractorsFactory;
 import androidx.media3.extractor.ts.TsExtractor;
@@ -46,8 +45,8 @@ import androidx.media3.ui.AspectRatioFrameLayout;
 import androidx.media3.ui.CaptionStyleCompat;
 import androidx.media3.ui.PlayerView;
 
-import org.jellyfin.androidtv.BuildConfig;
 import org.jellyfin.androidtv.R;
+import org.jellyfin.androidtv.util.diagnostics.TimberEventLogger;
 import org.jellyfin.androidtv.data.compat.StreamInfo;
 import org.jellyfin.androidtv.preference.UserPreferences;
 import org.jellyfin.androidtv.preference.constant.BufferLength;
@@ -106,11 +105,9 @@ public class VideoManager {
 
         mExoPlayer = configureExoplayerBuilder(activity, assHandler).build();
 
-        // Debug builds always log every player event (loads, tracks and their support, decoders, drops, errors),
-        // filter logcat on the EventLogger tag
-        if (BuildConfig.DEBUG || userPreferences.get(UserPreferences.Companion.getDebuggingEnabled())) {
-            mExoPlayer.addAnalyticsListener(new EventLogger());
-        }
+        // Log every player event (loads, tracks and their support, decoders, drops, errors) under the EventLogger tag.
+        // The lines also go into diagnostics reports sent to the server when playback fails.
+        mExoPlayer.addAnalyticsListener(new TimberEventLogger());
 
         // Volume normalisation (audio night mode).
         if (nightModeEnabled) {

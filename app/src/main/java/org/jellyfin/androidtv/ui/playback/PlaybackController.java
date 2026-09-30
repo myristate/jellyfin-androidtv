@@ -27,6 +27,7 @@ import org.jellyfin.androidtv.ui.InteractionTrackerViewModel;
 import org.jellyfin.androidtv.ui.livetv.TvManager;
 import org.jellyfin.androidtv.util.TimeUtils;
 import org.jellyfin.androidtv.util.Utils;
+import org.jellyfin.androidtv.util.diagnostics.DiagnosticsLog;
 import org.jellyfin.androidtv.util.apiclient.ReportingHelper;
 import org.jellyfin.androidtv.util.apiclient.Response;
 import org.jellyfin.androidtv.util.profile.DeviceProfileKt;
@@ -910,6 +911,8 @@ public class PlaybackController implements PlaybackControllerNotifiable {
 
     private void onLiveTvStartTimeout() {
         if (!isLiveTv || isPlaying() || isPaused()) return;
+        BaseItemDto channel = getCurrentlyPlayingItem();
+        DiagnosticsLog.INSTANCE.report("Live TV channel did not start: " + (channel == null ? "?" : channel.getName()), PlaybackStartTiming.events());
         if (retryLiveTvStart()) return;
 
         Timber.e("Live TV channel did not start after %s retries", LIVE_TV_START_RETRIES);
@@ -1329,6 +1332,11 @@ public class PlaybackController implements PlaybackControllerNotifiable {
         if (mFragment == null) {
             playerErrorEncountered();
             return;
+        }
+
+        if (isLiveTv) {
+            BaseItemDto channel = getCurrentlyPlayingItem();
+            DiagnosticsLog.INSTANCE.report("Live TV player error: " + (channel == null ? "?" : channel.getName()), PlaybackStartTiming.events());
         }
 
         if (isLiveTv && directStreamLiveTv) {
