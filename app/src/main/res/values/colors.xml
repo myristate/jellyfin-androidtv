@@ -67,4 +67,6 @@
     <color name="background_filter">#94101010</color>
     <!-- (Finly) The guide's "on now" marker -->
     <color name="finly_now">#00A4DC</color>
+    <!-- (Finly) A weak TV tuner signal -->
+    <color name="finly_signal_weak">#FFB300</color>
 </resources>

@@ -88,6 +88,7 @@ public class LiveTvGuideFragment extends Fragment implements LiveTvGuide, View.O
 
     BaseItemDto mSelectedProgram;
     private GuideLivePreview livePreview;
+    private GuideSignalBadges signalBadges;
     RelativeLayout mSelectedProgramView;
 
     private List<BaseItemDto> mAllChannels;
@@ -131,6 +132,8 @@ public class LiveTvGuideFragment extends Fragment implements LiveTvGuide, View.O
         mImage = binding.programImage;
         livePreview = new GuideLivePreview(requireContext(), LifecycleOwnerKt.getLifecycleScope(getViewLifecycleOwner()), binding.guidePreview, binding.programImage, binding.guidePreviewMessage);
         mChannels = binding.channels;
+        // (Finly) Weak signal marks on the channels
+        signalBadges = new GuideSignalBadges(LifecycleOwnerKt.getLifecycleScope(getViewLifecycleOwner()), mChannels);
         mTimeline = binding.timeline;
         mProgramRows = binding.programRows;
         mSpinner = binding.spinner;
@@ -248,6 +251,7 @@ public class LiveTvGuideFragment extends Fragment implements LiveTvGuide, View.O
 
             mAllChannels = TvManager.getAllChannels();
             if (!mAllChannels.isEmpty()) {
+                if (signalBadges != null) signalBadges.refresh();
                 displayChannels(ndx, PAGE_SIZE);
             } else {
                 mSpinner.setVisibility(View.GONE);
@@ -657,6 +661,7 @@ public class LiveTvGuideFragment extends Fragment implements LiveTvGuide, View.O
                         if (!getLifecycle().getCurrentState().isAtLeast(Lifecycle.State.STARTED)) return;
 
                         GuideChannelHeader header = getChannelHeader(requireContext(), channel);
+                        if (signalBadges != null) signalBadges.apply(header);
                         mChannels.addView(header);
                         header.loadImage();
                         mProgramRows.addView(row);
