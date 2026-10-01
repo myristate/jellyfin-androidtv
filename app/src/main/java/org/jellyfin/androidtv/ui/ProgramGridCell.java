@@ -64,14 +64,11 @@ public class ProgramGridCell extends RelativeLayout implements RecordingIndicato
         mNowIndicator = findViewById(R.id.nowIndicator);
 
         if (program.getStartDate() != null && program.getEndDate() != null) {
-            LocalDateTime localStart = program.getStartDate();
-            if (localStart.plusMinutes(1).isBefore(activity.getCurrentLocalStartDate())) {
-                mProgramName.setText("<< "+mProgramName.getText());
-            }
             // (Finly) Every programme shows when it starts and ends
             TextView time = new TextView(context);
             time.setTypeface(Typeface.create("sans-serif-light", Typeface.NORMAL));
-            time.setTextSize(12);
+            time.setTextSize(10);
+            time.setIncludeFontPadding(false);
             java.time.format.DateTimeFormatter formatter = DateTimeExtensionsKt.getTimeFormatter(getContext());
             time.setText(formatter.format(program.getStartDate()) + "\u2013" + formatter.format(program.getEndDate()));
             mInfoRow.addView(time);
