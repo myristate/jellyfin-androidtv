@@ -108,6 +108,21 @@
             app:layout_constraintTop_toBottomOf="@id/item_title"
             tools:text="Subtitle" />
 
+        <!-- (Finly) The tuner's signal while watching live TV -->
+        <TextView
+            android:id="@+id/signal_readout"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="@color/button_default_normal_text"
+            android:textSize="16sp"
+            android:visibility="gone"
+            app:layout_constraintEnd_toStartOf="@id/textClock"
+            app:layout_constraintHorizontal_bias="0.0"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/item_subtitle"
+            tools:text="Signal 84% · Quality 100%"
+            tools:visibility="visible" />
+
         <org.jellyfin.androidtv.ui.ClockUserView
             android:id="@+id/textClock"
             android:layout_width="wrap_content"

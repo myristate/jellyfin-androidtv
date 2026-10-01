@@ -9,10 +9,13 @@ import android.widget.ImageView;
 import android.widget.RelativeLayout;
 import android.widget.TextView;
 
+import androidx.annotation.Nullable;
 import androidx.core.content.ContextCompat;
 
 import org.jellyfin.androidtv.R;
+import org.jellyfin.androidtv.data.repository.ChannelSignal;
 import org.jellyfin.androidtv.ui.livetv.GuideCellTouchKt;
+import org.jellyfin.androidtv.ui.livetv.GuideSignalKt;
 import org.jellyfin.androidtv.ui.livetv.LiveTvGuide;
 import org.jellyfin.androidtv.ui.livetv.LiveTvGuideFragment;
 import org.jellyfin.androidtv.util.ImageHelper;
@@ -69,6 +72,15 @@ public class GuideChannelHeader extends RelativeLayout {
 
     public BaseItemDto getChannel() { return mChannel; }
     public void setChannel(BaseItemDto channel) { mChannel = channel; }
+
+    /**
+     * (Finly) Mark the channel when the tuner receives it weakly, or clear the mark.
+     */
+    public void setSignal(@Nullable ChannelSignal signal) {
+        ImageView signalImage = findViewById(R.id.signalImage);
+        if (signalImage == null) return;
+        GuideSignalKt.showWeakSignal(signalImage, signal);
+    }
 
     public void refreshFavorite() {
         if (mChannel.getUserData() != null && mChannel.getUserData().isFavorite())

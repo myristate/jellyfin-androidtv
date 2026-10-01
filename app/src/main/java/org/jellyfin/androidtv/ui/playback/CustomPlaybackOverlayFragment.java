@@ -36,6 +36,7 @@ import androidx.leanback.widget.Presenter;
 import androidx.leanback.widget.Row;
 import androidx.leanback.widget.RowPresenter;
 import androidx.lifecycle.Lifecycle;
+import androidx.lifecycle.LifecycleOwnerKt;
 
 import org.jellyfin.androidtv.R;
 import org.jellyfin.androidtv.constant.CustomMessage;
@@ -53,6 +54,7 @@ import org.jellyfin.androidtv.ui.ProgramGridCell;
 import org.jellyfin.androidtv.ui.ScrollViewListener;
 import org.jellyfin.androidtv.ui.itemhandling.ChapterItemInfoBaseRowItem;
 import org.jellyfin.androidtv.ui.itemhandling.ItemRowAdapter;
+import org.jellyfin.androidtv.ui.livetv.GuideSignalBadges;
 import org.jellyfin.androidtv.ui.livetv.LiveTvGuide;
 import org.jellyfin.androidtv.ui.livetv.LiveTvGuideFragment;
 import org.jellyfin.androidtv.ui.livetv.LiveTvGuideFragmentHelperKt;
@@ -127,6 +129,10 @@ public class CustomPlaybackOverlayFragment extends Fragment implements LiveTvGui
 
     protected LeanbackOverlayFragment leanbackOverlayFragment;
 
+    // (Finly) The tuner's signal in the overlay and weak signal marks in the guide
+    private LiveTvSignalReadout signalReadout;
+    private GuideSignalBadges guideSignalBadges;
+
     private final Lazy<org.jellyfin.sdk.api.client.ApiClient> api = inject(org.jellyfin.sdk.api.client.ApiClient.class);
     private final Lazy<MediaManager> mediaManager = inject(MediaManager.class);
     private final Lazy<VideoQueueManager> videoQueueManager = inject(VideoQueueManager.class);
@@ -196,6 +202,7 @@ public class CustomPlaybackOverlayFragment extends Fragment implements LiveTvGui
         tvGuideBinding = OverlayTvGuideBinding.inflate(inflater, container, false);
         binding.getRoot().addView(tvGuideBinding.getRoot());
         tvGuideBinding.getRoot().setVisibility(View.GONE);
+        guideSignalBadges = new GuideSignalBadges(LifecycleOwnerKt.getLifecycleScope(getViewLifecycleOwner()), tvGuideBinding.channels);
 
         binding.getRoot().setOnTouchListener((v, event) -> {
             //and then manage our fade timer
@@ -218,6 +225,9 @@ public class CustomPlaybackOverlayFragment extends Fragment implements LiveTvGui
             return;
         }
 
+        signalReadout = new LiveTvSignalReadout(getViewLifecycleOwner(), binding.signalReadout, this::getLiveTvChannelId);
+        if (mIsVisible) signalReadout.start();
+
         PlaybackController playbackController = playbackControllerContainer.getValue().getPlaybackController();
 
         if (playbackController != null) {
@@ -225,9 +235,25 @@ public class CustomPlaybackOverlayFragment extends Fragment implements LiveTvGui
         }
     }
 
+    /**
+     * (Finly) The live TV channel playing, or null when what plays isn't live TV.
+     */
+    @Nullable
+    private UUID getLiveTvChannelId() {
+        PlaybackController playbackController = playbackControllerContainer.getValue().getPlaybackController();
+        if (playbackController == null || !playbackController.isLiveTv()) return null;
+        BaseItemDto item = playbackController.getCurrentlyPlayingItem();
+        return item == null ? null : item.getId();
+    }
+
     @Override
     public void onDestroyView() {
         super.onDestroyView();
+
+        if (signalReadout != null) {
+            signalReadout.stop();
+            signalReadout = null;
+        }
 
         binding = null;
         // To fix race condition in hide timer
@@ -797,6 +823,7 @@ public class CustomPlaybackOverlayFragment extends Fragment implements LiveTvGui
         binding.topPanel.startAnimation(slideDown);
         mIsVisible = true;
         binding.skipOverlay.setSkipUiEnabled(!mIsVisible && !mGuideVisible && !mPopupPanelVisible);
+        if (signalReadout != null) signalReadout.start();
     }
 
     public void hide() {
@@ -806,6 +833,7 @@ public class CustomPlaybackOverlayFragment extends Fragment implements LiveTvGui
         mIsVisible = false;
         binding.topPanel.startAnimation(fadeOut);
         binding.skipOverlay.setSkipUiEnabled(!mIsVisible && !mGuideVisible && !mPopupPanelVisible);
+        if (signalReadout != null) signalReadout.stop();
     }
 
     private void showChapterPanel() {
@@ -866,6 +894,7 @@ public class CustomPlaybackOverlayFragment extends Fragment implements LiveTvGui
 
             mAllChannels = TvManager.getAllChannels();
             if (!mAllChannels.isEmpty()) {
+                if (guideSignalBadges != null) guideSignalBadges.refresh();
                 displayChannels(ndx, PAGE_SIZE);
             } else {
                 tvGuideBinding.spinner.setVisibility(View.GONE);
@@ -1010,7 +1039,9 @@ public class CustomPlaybackOverlayFragment extends Fragment implements LiveTvGui
     private int currentCellId = 0;
 
     private GuideChannelHeader getChannelHeader(Context context, BaseItemDto channel) {
-        return new GuideChannelHeader(context, this, channel);
+        GuideChannelHeader header = new GuideChannelHeader(context, this, channel);
+        if (guideSignalBadges != null) guideSignalBadges.apply(header);
+        return header;
     }
 
     private LinearLayout getProgramRow(List<BaseItemDto> programs, UUID channelId) {
@@ -1352,6 +1383,9 @@ public class CustomPlaybackOverlayFragment extends Fragment implements LiveTvGui
             } else {
                 prepareChapterAdapter();
             }
+
+            // (Finly) Read the new channel's signal straight away when the overlay is showing
+            if (signalReadout != null) signalReadout.restart();
         }
     }
 

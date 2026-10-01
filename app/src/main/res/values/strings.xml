@@ -767,4 +767,8 @@
     <string name="profile_picture_none">No posters found</string>
     <string name="profile_switch">Switch profile</string>
     <string name="profile_switch_description">Go back to \"Who\'s watching?\"</string>
+    <!-- (Finly) TV tuner signal -->
+    <string name="signal_readout">Signal %1$d%% · Quality %2$d%%</string>
+    <string name="signal_weak">Weak signal</string>
+    <string name="signal_weak_description">Weak signal: quality %1$d%%, strength %2$d%%</string>
 </resources>
