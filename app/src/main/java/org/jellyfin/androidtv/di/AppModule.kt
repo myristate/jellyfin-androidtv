@@ -70,6 +70,8 @@ import org.jellyfin.androidtv.util.sdk.SdkPlaybackHelper
 import org.jellyfin.sdk.android.androidDevice
 import org.jellyfin.sdk.api.client.HttpClientOptions
 import org.jellyfin.sdk.api.okhttp.OkHttpFactory
+import okhttp3.OkHttpClient
+import org.jellyfin.androidtv.util.apiclient.ServerResponseInterceptor
 import org.jellyfin.sdk.createJellyfin
 import org.jellyfin.sdk.model.ClientInfo
 import org.koin.android.ext.koin.androidContext
@@ -84,7 +86,8 @@ val defaultDeviceInfo = named("defaultDeviceInfo")
 val appModule = module {
 	// SDK
 	single(defaultDeviceInfo) { androidDevice(get()) }
-	single { OkHttpFactory() }
+	// (Finly) Every request, also images and playback, logs failures and keeps the server's refusal reasons
+	single { OkHttpFactory(OkHttpClient.Builder().addInterceptor(ServerResponseInterceptor()).build()) }
 	single { HttpClientOptions() }
 	single {
 		createJellyfin {

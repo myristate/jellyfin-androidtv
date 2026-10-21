@@ -39,24 +39,29 @@ import org.jellyfin.androidtv.ui.base.list.ListSection
 import org.jellyfin.androidtv.ui.composable.AsyncImage
 import org.jellyfin.androidtv.ui.navigation.LocalRouter
 import org.jellyfin.androidtv.util.apiclient.getUrl
+import org.jellyfin.androidtv.util.apiclient.ServerRefusals
+import org.jellyfin.androidtv.util.apiclient.refusalMessage
 import org.jellyfin.androidtv.util.apiclient.itemImages
 import org.jellyfin.design.Tokens
 import org.jellyfin.sdk.api.client.ApiClient
 import org.jellyfin.sdk.api.client.exception.ApiClientException
+import org.jellyfin.sdk.api.client.exception.InvalidStatusException
 import org.jellyfin.sdk.model.api.BaseItemDto
 import org.jellyfin.sdk.model.api.ImageType
 import org.koin.compose.koinInject
 import timber.log.Timber
+import java.util.UUID
 
 private const val POSTER_ASPECT_RATIO = 2f / 3f
 private const val POSTER_MAX_HEIGHT = 300
 private const val POSTER_COLUMNS = 3
 
 /**
- * Pick a poster from the user's own libraries as their profile picture.
+ * Pick a poster from the user's own libraries as their profile picture: the signed in user's, or ([userId], Finly) for
+ * a parent, a family member's, from what that family member can see.
  */
 @Composable
-fun SettingsProfilePictureScreen() {
+fun SettingsProfilePictureScreen(userId: UUID? = null) {
 	val router = LocalRouter.current
 	val context = LocalContext.current
 	val coroutineScope = rememberCoroutineScope()
@@ -68,7 +73,7 @@ fun SettingsProfilePictureScreen() {
 
 	LaunchedEffect(userProfileRepository) {
 		choices = try {
-			userProfileRepository.getPictureChoices()
+			userProfileRepository.getPictureChoices(userId)
 		} catch (error: ApiClientException) {
 			Timber.e(error, "Failed to load profile picture choices")
 			emptyList()
@@ -80,16 +85,16 @@ fun SettingsProfilePictureScreen() {
 		saving = true
 
 		coroutineScope.launch {
-			val changed = try {
-				userProfileRepository.setProfilePicture(item)
-				true
+			val failure = try {
+				userProfileRepository.setProfilePicture(item, userId)
+				null
 			} catch (error: ApiClientException) {
-				Timber.e(error, "Failed to set profile picture")
-				false
+				Timber.e(error, "Failed to set the profile picture of user %s", userId ?: "signed in")
+				context.refusalMessage(ServerRefusals.take("/Images/Primary"), (error as? InvalidStatusException)?.status)
 			}
+			val changed = failure == null
 
-			val message = if (changed) R.string.profile_picture_changed else R.string.profile_picture_failed
-			Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+			Toast.makeText(context, failure ?: context.getString(R.string.profile_picture_changed), Toast.LENGTH_LONG).show()
 			saving = false
 			if (changed) router.back()
 		}

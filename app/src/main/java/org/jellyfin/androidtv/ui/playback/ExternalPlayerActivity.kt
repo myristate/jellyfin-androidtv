@@ -63,6 +63,8 @@ class ExternalPlayerActivity : FragmentActivity() {
 
 	private val playVideoLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
 		Timber.i("Playback finished with result code ${result.resultCode}")
+		// (Finly) The external player is done, being away from the app counts towards locking again
+		sessionRepository.setExternalPlaybackActive(false)
 
 		val player = currentPlayer ?: externalAppRepository.defaultExternalPlayerApi
 		val playResult = player.parseResult(result)
@@ -81,9 +83,6 @@ class ExternalPlayerActivity : FragmentActivity() {
 
 	override fun onCreate(savedInstanceState: Bundle?) {
 		super.onCreate(savedInstanceState)
-
-		// (Finly) Watching in the external player app isn't leaving the TV, a PIN protected profile stays open
-		sessionRepository.setExternalPlaybackActive(true)
 
 		lifecycleScope.launch {
 			// Wait for result job to complete before attempting to do anything
@@ -187,6 +186,8 @@ class ExternalPlayerActivity : FragmentActivity() {
 		try {
 			currentPlayer = player
 			currentItem = item to mediaSource
+			// (Finly) Watching in the external player app isn't leaving the TV, a PIN protected profile stays open
+			sessionRepository.setExternalPlaybackActive(true)
 			playVideoLauncher.launch(playIntent)
 		} catch (_: ActivityNotFoundException) {
 			Toast.makeText(this, R.string.no_player_message, Toast.LENGTH_LONG).show()

@@ -6,4 +6,7 @@ interface PlaybackControllerNotifiable {
 	fun onPrepared()
 	fun onProgress()
 	fun onPlaybackSpeedChange(newSpeed: Float)
+
+	/** The player started ([buffering] true) or stopped waiting for data. */
+	fun onBuffering(buffering: Boolean)
 }

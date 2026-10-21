@@ -4,12 +4,14 @@ import androidx.annotation.NonNull;
 import androidx.leanback.media.PlayerAdapter;
 
 import org.jellyfin.androidtv.auth.repository.UserRepository;
+import org.jellyfin.androidtv.data.compat.StreamInfo;
 import org.jellyfin.androidtv.ui.playback.CustomPlaybackOverlayFragment;
 import org.jellyfin.androidtv.ui.playback.PlaybackController;
 import org.jellyfin.androidtv.util.Utils;
 import org.jellyfin.androidtv.util.apiclient.StreamHelper;
 import org.jellyfin.sdk.model.api.ChapterInfo;
 import org.jellyfin.sdk.model.api.MediaSourceInfo;
+import org.jellyfin.sdk.model.api.PlayMethod;
 import org.koin.java.KoinJavaComponent;
 
 import java.util.List;
@@ -105,6 +107,12 @@ public class VideoPlayerAdapter extends PlayerAdapter {
     }
 
     public boolean hasMultiAudio() {
+        // (Finly) A directly played Live TV channel only keeps its main audio (LiveTvExtractorsFactory), choosing another
+        // one would only tune the channel again
+        if (playbackController.isLiveTv()) {
+            StreamInfo streamInfo = playbackController.getCurrentStreamInfo();
+            if (streamInfo != null && streamInfo.getPlayMethod() == PlayMethod.DIRECT_PLAY) return false;
+        }
         return StreamHelper.getAudioStreams(playbackController.getCurrentMediaSource()).size() > 1;
     }
 

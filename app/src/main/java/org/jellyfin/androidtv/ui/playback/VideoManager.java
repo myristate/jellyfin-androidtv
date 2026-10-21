@@ -36,7 +36,11 @@ import androidx.media3.exoplayer.DefaultLoadControl;
 import androidx.media3.exoplayer.DefaultRenderersFactory;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.analytics.AnalyticsListener;
+import androidx.media3.exoplayer.audio.AudioSink;
+import androidx.media3.exoplayer.DecoderReuseEvaluation;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
+import androidx.media3.exoplayer.source.MediaLoadData;
+import androidx.media3.exoplayer.source.LoadEventInfo;
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector;
 import androidx.media3.extractor.DefaultExtractorsFactory;
 import androidx.media3.extractor.ExtractorsFactory;
@@ -59,6 +63,7 @@ import org.jellyfin.sdk.model.api.MediaStreamType;
 import org.jellyfin.sdk.model.api.SubtitleDeliveryMethod;
 import org.koin.java.KoinJavaComponent;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -87,6 +92,11 @@ public class VideoManager {
     private volatile boolean liveTv = false;
     private PlayerView mExoPlayerView;
     private Handler mHandler = new Handler();
+
+    // Whether the device's video decoder stopped responding, see isVideoDecoderStuck
+    private volatile boolean videoFormatSeen = false;
+    private volatile boolean videoDecoderStarted = false;
+    private volatile boolean playerFrozen = false;
 
     private long mMetaDuration = -1;
     private long lastExoPlayerPosition = -1;
@@ -124,6 +134,60 @@ public class VideoManager {
             });
         }
 
+        // Notice a video decoder that never starts: the stream's video arrives but the device can't open a decoder for
+        // it. The device's decoder has hung, every later start hangs the same way until the device is restarted.
+        mExoPlayer.addAnalyticsListener(new AnalyticsListener() {
+            @Override
+            public void onDownstreamFormatChanged(@NonNull AnalyticsListener.EventTime eventTime, @NonNull MediaLoadData mediaLoadData) {
+                if (mediaLoadData.trackType == C.TRACK_TYPE_VIDEO) videoFormatSeen = true;
+            }
+
+            @Override
+            public void onVideoDecoderInitialized(@NonNull AnalyticsListener.EventTime eventTime, @NonNull String decoderName, long initializedTimestampMs, long initializationDurationMs) {
+                videoDecoderStarted = true;
+                Timber.i("Video decoder %s started in %d ms", decoderName, initializationDurationMs);
+            }
+
+            // (Finly) What matters when playback stalls or breaks, logged in every build: these lines go into the
+            // diagnostics reports sent to the server
+
+            @Override
+            public void onAudioDecoderInitialized(@NonNull AnalyticsListener.EventTime eventTime, @NonNull String decoderName, long initializedTimestampMs, long initializationDurationMs) {
+                Timber.i("Audio decoder %s started in %d ms", decoderName, initializationDurationMs);
+            }
+
+            @Override
+            public void onAudioTrackInitialized(@NonNull AnalyticsListener.EventTime eventTime, @NonNull AudioSink.AudioTrackConfig config) {
+                Timber.i("Audio output: encoding %d, %d Hz, channel mask %d, offload %s, tunneling %s", config.encoding, config.sampleRate, config.channelConfig, config.offload, config.tunneling);
+            }
+
+            @Override
+            public void onVideoInputFormatChanged(@NonNull AnalyticsListener.EventTime eventTime, @NonNull Format format, @Nullable DecoderReuseEvaluation decoderReuseEvaluation) {
+                Timber.i("Video format: %s", Format.toLogString(format));
+            }
+
+            @Override
+            public void onAudioInputFormatChanged(@NonNull AnalyticsListener.EventTime eventTime, @NonNull Format format, @Nullable DecoderReuseEvaluation decoderReuseEvaluation) {
+                Timber.i("Audio format: %s", Format.toLogString(format));
+            }
+
+            @Override
+            public void onLoadError(@NonNull AnalyticsListener.EventTime eventTime, @NonNull LoadEventInfo loadEventInfo, @NonNull MediaLoadData mediaLoadData, @NonNull IOException error, boolean wasCanceled) {
+                // Only the path: the query carries the access token
+                Timber.w("Load error for %s after %d ms (%d bytes, canceled %s): %s", loadEventInfo.uri.getPath(), loadEventInfo.loadDurationMs, loadEventInfo.bytesLoaded, wasCanceled, error.toString());
+            }
+
+            @Override
+            public void onDroppedVideoFrames(@NonNull AnalyticsListener.EventTime eventTime, int droppedFrames, long elapsedMs) {
+                Timber.w("Dropped %d video frames in %d ms", droppedFrames, elapsedMs);
+            }
+
+            @Override
+            public void onAudioUnderrun(@NonNull AnalyticsListener.EventTime eventTime, int bufferSize, long bufferSizeMs, long elapsedSinceLastFeedMs) {
+                Timber.w("Audio underrun, buffer %d ms, %d ms since last fed", bufferSizeMs, elapsedSinceLastFeedMs);
+            }
+        });
+
         mExoPlayerView = view.findViewById(R.id.exoPlayerView);
         mExoPlayerView.setPlayer(mExoPlayer);
         int strokeColor = userPreferences.get(UserPreferences.Companion.getSubtitleTextStrokeColor()).intValue();
@@ -150,6 +214,8 @@ public class VideoManager {
             public void onPlayerError(@NonNull PlaybackException error) {
                 Timber.e(error, "Player error %s", error.getErrorCodeName());
                 PlaybackStartTiming.finish("error " + error.getErrorCodeName());
+                // The player's own thread didn't answer in time, it is stuck in the device's decoder
+                if (error.errorCode == PlaybackException.ERROR_CODE_TIMEOUT) playerFrozen = true;
                 if (mPlaybackControllerNotifiable != null) mPlaybackControllerNotifiable.onError();
                 stopProgressLoop();
             }
@@ -174,6 +240,8 @@ public class VideoManager {
                 }
 
                 if (playbackState == Player.STATE_READY) PlaybackStartTiming.mark("ready");
+
+                if (mPlaybackControllerNotifiable != null) mPlaybackControllerNotifiable.onBuffering(playbackState == Player.STATE_BUFFERING);
 
                 if (playbackState == Player.STATE_ENDED) {
                     if (mPlaybackControllerNotifiable != null) mPlaybackControllerNotifiable.onCompletion();
@@ -297,6 +365,14 @@ public class VideoManager {
     public void setLiveTv(boolean liveTv) {
         this.liveTv = liveTv;
         loadControl.setLiveTv(liveTv);
+    }
+
+    /**
+     * Whether the device's video decoder stopped responding: the video arrived but no decoder could be opened for it,
+     * or the player's thread is stuck. Trying again doesn't help, only restarting the device does.
+     */
+    public boolean isVideoDecoderStuck() {
+        return playerFrozen || (videoFormatSeen && !videoDecoderStarted);
     }
 
     public boolean isInitialized() {
@@ -448,6 +524,11 @@ public class VideoManager {
                     .build();
 
             PlaybackStartTiming.mark("prepare");
+            videoFormatSeen = false;
+            videoDecoderStarted = false;
+            // A timeout can also come from a slow release that recovered, judge each stream afresh: a decoder that
+            // really hung shows again as video arriving without a decoder starting
+            playerFrozen = false;
             mExoPlayer.setMediaItem(mediaItem);
             mExoPlayer.prepare();
         } catch (IllegalStateException e) {

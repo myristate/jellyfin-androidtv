@@ -25,6 +25,7 @@ import org.jellyfin.androidtv.auth.model.ApiClientErrorLoginState
 import org.jellyfin.androidtv.auth.model.AuthenticatedState
 import org.jellyfin.androidtv.auth.model.AuthenticatingState
 import org.jellyfin.androidtv.auth.model.InvalidPinState
+import org.jellyfin.androidtv.auth.model.RefusedLoginState
 import org.jellyfin.androidtv.auth.model.PrivateUser
 import org.jellyfin.androidtv.auth.model.RequirePinState
 import org.jellyfin.androidtv.auth.model.RequireSignInState
@@ -40,6 +41,7 @@ import org.jellyfin.androidtv.databinding.FragmentServerBinding
 import org.jellyfin.androidtv.ui.card.UserCardView
 import org.jellyfin.androidtv.ui.startup.StartupViewModel
 import org.jellyfin.androidtv.util.ListAdapter
+import org.jellyfin.androidtv.util.apiclient.refusalMessage
 import org.jellyfin.androidtv.util.MarkdownRenderer
 import org.jellyfin.androidtv.util.createBundle
 import org.jellyfin.sdk.model.serializer.toUUIDOrNull
@@ -90,8 +92,9 @@ class ServerFragment : Fragment() {
 						putString(UserPinFragment.ARG_USER_ID, user.id.toString())
 					})
 					// Errors
+					is RefusedLoginState -> Toast.makeText(context, requireContext().refusalMessage(state.refusal, state.status), Toast.LENGTH_LONG).show()
 					ServerUnavailableState,
-					is ApiClientErrorLoginState -> Toast.makeText(context, R.string.server_connection_failed, Toast.LENGTH_LONG).show()
+					is ApiClientErrorLoginState -> Toast.makeText(context, R.string.refusal_unreachable, Toast.LENGTH_LONG).show()
 
 					is ServerVersionNotSupported -> Toast.makeText(
 						context,
@@ -106,6 +109,8 @@ class ServerFragment : Fragment() {
 			}.launchIn(lifecycleScope)
 		}
 		binding.users.adapter = userAdapter
+		// (Finly) Keep the profiles centred on screen, the grid itself lines them up from the left
+		binding.users.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> centerUsers() }
 
 		startupViewModel.users
 			.flowWithLifecycle(viewLifecycleOwner.lifecycle, Lifecycle.State.STARTED)
@@ -135,6 +140,24 @@ class ServerFragment : Fragment() {
 		super.onDestroyView()
 
 		_binding = null
+	}
+
+	/**
+	 * Pad the profile row so its cards sit in the middle. When there are more profiles than fit on screen the row
+	 * keeps no padding and scrolls as usual.
+	 */
+	private fun centerUsers() {
+		val grid = _binding?.users ?: return
+		val itemCount = grid.adapter?.itemCount ?: 0
+		val cards = (0 until grid.childCount).map { grid.getChildAt(it) }
+
+		val padding = if (itemCount == 0 || cards.size < itemCount) 0 else {
+			val contentWidth = cards.maxOf { it.right } - cards.minOf { it.left }
+			((grid.width - contentWidth) / 2).coerceAtLeast(0)
+		}
+
+		// Changing the padding lays the row out again, only do it when it changes
+		if (padding != grid.paddingStart) grid.post { grid.setPaddingRelative(padding, grid.paddingTop, padding, grid.paddingBottom) }
 	}
 
 	private fun onServerChange(server: Server) {

@@ -19,7 +19,8 @@ import java.time.format.DateTimeFormatter
  * a TV without a debugging cable (for example a channel that won't start) can be read in the server's log folder.
  */
 object DiagnosticsLog {
-	private const val MAX_LINES = 400
+	// A few minutes of playback with the player's events, for reports about playback that got stuck
+	private const val MAX_LINES = 2000
 	private const val MIN_REPORT_INTERVAL_MS = 60_000L
 
 	private val lines = ArrayDeque<String>(MAX_LINES)

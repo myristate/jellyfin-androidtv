@@ -27,6 +27,9 @@ import org.jellyfin.androidtv.auth.model.PrivateUser
 import org.jellyfin.androidtv.auth.model.PublicUser
 import org.jellyfin.androidtv.auth.model.QuickConnectAuthenticateMethod
 import org.jellyfin.androidtv.auth.model.RequirePinState
+import org.jellyfin.androidtv.util.apiclient.ServerRefusals
+import org.jellyfin.androidtv.util.apiclient.ServerRefusal
+import org.jellyfin.androidtv.auth.model.RefusedLoginState
 import org.jellyfin.androidtv.auth.model.RequireSignInState
 import org.jellyfin.androidtv.auth.model.Server
 import org.jellyfin.androidtv.auth.model.ServerUnavailableState
@@ -71,16 +74,22 @@ interface AuthenticationRepository {
 	fun hasPin(serverId: UUID, userId: UUID): Boolean
 
 	/**
-	 * Ask the server how the signed in user signs in, which also refreshes [hasPin].
+	 * Ask the server how a user signs in, the signed in user when [userId] is null, which also refreshes [hasPin] for a
+	 * user stored on this device.
 	 */
-	suspend fun getSignInOptions(): SignInOptions?
+	suspend fun getSignInOptions(userId: UUID? = null): SignInOptions?
 
 	/**
-	 * Set the signed in user's PIN on the server, or remove it with a null [pin]. The server needs [current], the user's
-	 * current PIN or password, when they have either. A wrong current PIN counts towards the same lockout as signing in
-	 * with a wrong PIN, see [pinLockoutSeconds].
+	 * Set a user's PIN on the server, or remove it with a null [pin] (finly/SIGN-IN.md). For the signed in user ([userId]
+	 * null) the server needs [current]: their current PIN (home network only) or password, or for a first PIN their
+	 * password. An administrator changing someone else's gives none.
 	 */
-	suspend fun setPin(current: String, pin: String?): PinChangeResult
+	suspend fun setPin(current: String?, pin: String?, userId: UUID? = null): PinChangeResult
+
+	/**
+	 * Turn PIN sign in back on for a user after too many wrong PINs, for an administrator.
+	 */
+	suspend fun unlockPin(userId: UUID): PinChangeResult
 
 	/**
 	 * Seconds until the PIN of a stored user may be tried again after too many wrong attempts, 0 when it can be tried.
@@ -89,20 +98,22 @@ interface AuthenticationRepository {
 }
 
 /**
- * How a user signs in: with a password, a PIN (on this network), both or neither.
+ * How a user signs in (finly/SIGN-IN.md): whether they have a password, have a PIN at all ([pinProtected]), can enter
+ * it from here ([pinUsable], home network and not turned off) and whether PIN sign in is turned off after too many
+ * wrong PINs.
  */
 data class SignInOptions(
 	val hasPassword: Boolean,
-	val hasPin: Boolean,
+	val pinProtected: Boolean,
+	val pinUsable: Boolean,
+	val pinSignInDisabled: Boolean,
 )
 
-enum class PinChangeResult {
-	SAVED,
-	WRONG_CURRENT,
+sealed interface PinChangeResult {
+	data object Saved : PinChangeResult
 
-	/** Too many wrong PINs, the current PIN can't be tried until the lockout is over. */
-	LOCKED_OUT,
-	FAILED,
+	/** The server refused or couldn't be reached ([status] null), show [org.jellyfin.androidtv.util.apiclient.refusalMessage]. */
+	data class Refused(val refusal: ServerRefusal?, val status: Int?) : PinChangeResult
 }
 
 @Serializable
@@ -111,21 +122,6 @@ internal data class UpdateUserPinBody(
 	@SerialName("NewPin") val newPin: String?,
 	@SerialName("ResetPin") val resetPin: Boolean,
 )
-
-private const val PIN_ATTEMPTS_BEFORE_LOCKOUT = 5
-
-// Lockout after the 5th wrong PIN, then after each further one
-private val PIN_LOCKOUT_SECONDS = longArrayOf(30, 60, 120, 300, 900, 1800)
-
-/**
- * When a PIN may be tried again after [failures] wrong PINs in a row (epoch milliseconds), 0 while it may be tried.
- * The same steps as the server's.
- */
-internal fun pinLockedUntil(failures: Int, now: Long = System.currentTimeMillis()): Long {
-	val lockouts = failures - PIN_ATTEMPTS_BEFORE_LOCKOUT
-	return if (lockouts < 0) 0L
-	else now + PIN_LOCKOUT_SECONDS[lockouts.coerceAtMost(PIN_LOCKOUT_SECONDS.lastIndex)] * 1000
-}
 
 class AuthenticationRepositoryImpl(
 	private val jellyfin: Jellyfin,
@@ -151,11 +147,14 @@ class AuthenticationRepositoryImpl(
 		if (authenticationPreferences[AuthenticationPreferences.alwaysAuthenticate]) return flowOf(RequireSignInState)
 
 		val authStoreUser = authenticationStore.getUser(server.id, user.id)
-		// Either the server's user list or what the server said last is enough to ask for the PIN (Finly)
-		val hasPin = (user is PublicUser && user.hasPin) || authStoreUser?.serverPin == true
+		// Either the server's user list or what the server said last is enough to know there is a PIN (Finly)
+		val pinProtected = (user is PublicUser && user.hasPin) || authStoreUser?.serverPin == true
 		return when {
 			// A profile with a PIN always asks for it, also when this device has a stored access token
-			hasPin -> flowOf(RequirePinState)
+			pinProtected && (user !is PublicUser || user.hasPin) -> flowOf(RequirePinState)
+			// The PIN can't be entered right now (away from home, or turned off after too many wrong PINs): the password
+			// then, never the stored access token
+			pinProtected -> flowOf(RequireSignInState)
 			// Try login with access token
 			authStoreUser?.accessToken != null -> authenticateToken(server, user.withToken(authStoreUser.accessToken))
 			// A user without a password can sign in straight away
@@ -166,13 +165,11 @@ class AuthenticationRepositoryImpl(
 	}
 
 	/**
-	 * Sign in with the user's PIN. The server checks it, like a password, and throttles wrong PINs; the same count is
-	 * kept here so the PIN pad can show how long to wait.
+	 * Sign in with the user's PIN. The server checks it, like a password, and throttles wrong PINs; it says how long to
+	 * wait, which is kept so the PIN pad can count down. Nothing is counted here: a parent unlocking the PIN or setting a
+	 * new one elsewhere then works straight away.
 	 */
 	private fun authenticatePin(server: Server, user: User, pin: String) = flow {
-		// Locked after too many wrong attempts: don't even ask the server
-		if (pinLockoutSeconds(server.id, user.id) > 0) return@flow emit(InvalidPinState)
-
 		val api = jellyfin.createApi(server.address, deviceInfo = defaultDeviceInfo.forUser(user.name))
 		val result = try {
 			api.userApi.authenticateUserByName(user.name, pin).content
@@ -180,22 +177,26 @@ class AuthenticationRepositoryImpl(
 			Timber.e(err, "Failed to connect to server trying to sign in ${user.id} with a PIN")
 			return@flow emit(ServerUnavailableState)
 		} catch (err: InvalidStatusException) {
+			val refusal = ServerRefusals.take("/Users/AuthenticateByName")
 			when (err.status) {
 				HttpURLConnection.HTTP_UNAUTHORIZED -> {
 					Timber.w("Wrong PIN entered for user ${user.id}")
-					recordPinFailure(server.id, user.id)
 					emit(InvalidPinState)
 				}
 
 				// A wrong PIN is a 401 like a wrong password. A 403 means the server refused to sign the profile in at
-				// all: outside its allowed hours, turned off, or PIN sign in paused after too many wrong PINs. The
-				// server doesn't say which, so don't count it as a wrong PIN and let the PIN pad explain (Finly).
+				// all, and says why (Finly): PIN sign in paused or turned off after too many wrong PINs, outside its
+				// allowed hours, or turned off.
 				HttpURLConnection.HTTP_FORBIDDEN -> {
-					Timber.w("Server refused to sign in user ${user.id}")
-					emit(ApiClientErrorLoginState(err))
+					Timber.w("Server refused to sign in user ${user.id} with a PIN: ${refusal?.reason}, retry after ${refusal?.retryAfterSeconds} s")
+					rememberPinLockout(server.id, user.id, refusal)
+					emit(RefusedLoginState(refusal, err.status))
 				}
 
-				else -> emit(ApiClientErrorLoginState(err))
+				else -> {
+					Timber.e(err, "Unable to sign in ${user.id} with a PIN, status ${err.status}")
+					emit(ApiClientErrorLoginState(err))
+				}
 			}
 			return@flow
 		} catch (err: ApiClientException) {
@@ -212,13 +213,13 @@ class AuthenticationRepositoryImpl(
 	}.flowOn(Dispatchers.IO)
 
 	/**
-	 * Count a wrong PIN the same way as the server: after [PIN_ATTEMPTS_BEFORE_LOCKOUT] the PIN is locked for a while,
-	 * and each further wrong PIN locks it for longer. Stored with the user, so restarting the app doesn't reset it.
+	 * Keep how long the server said to wait after too many wrong PINs, so the PIN pad can count down, also after the
+	 * app restarts.
 	 */
-	private fun recordPinFailure(serverId: UUID, userId: UUID) {
+	private fun rememberPinLockout(serverId: UUID, userId: UUID, refusal: ServerRefusal?) {
+		val seconds = refusal?.retryAfterSeconds?.takeIf { refusal.reason == ServerRefusal.PIN_LOCKED_OUT } ?: return
 		val storeUser = authenticationStore.getUser(serverId, userId) ?: return
-		val failures = storeUser.pinFailures + 1
-		authenticationStore.putUser(serverId, userId, storeUser.copy(pinFailures = failures, pinLockedUntil = pinLockedUntil(failures)))
+		authenticationStore.putUser(serverId, userId, storeUser.copy(pinLockedUntil = System.currentTimeMillis() + seconds * 1000))
 	}
 
 	private fun resetPinFailures(serverId: UUID, userId: UUID) {
@@ -243,10 +244,15 @@ class AuthenticationRepositoryImpl(
 			emit(ServerUnavailableState)
 			return@flow
 		} catch (err: InvalidStatusException) {
-			Timber.e(err, "Unable to sign in as $username")
+			val refusal = ServerRefusals.take("/Users/AuthenticateByName")
+			Timber.e(err, "Unable to sign in as $username, status ${err.status}, reason ${refusal?.reason}")
 			// The server rejected the username or password, don't report it as a connection problem
-			if (err.status == HttpURLConnection.HTTP_UNAUTHORIZED) emit(RequireSignInState)
-			else emit(ApiClientErrorLoginState(err))
+			when (err.status) {
+				HttpURLConnection.HTTP_UNAUTHORIZED -> emit(RequireSignInState)
+				// Refused for a reason to tell the person (Finly), such as a password needed away from home
+				HttpURLConnection.HTTP_FORBIDDEN -> emit(RefusedLoginState(refusal, err.status))
+				else -> emit(ApiClientErrorLoginState(err))
+			}
 			return@flow
 		} catch (err: ApiClientException) {
 			Timber.e(err, "Unable to sign in as $username")
@@ -305,7 +311,12 @@ class AuthenticationRepositoryImpl(
 		emit(AuthenticatingState)
 
 		val result = setActiveSession(user, server)
-		if (result != SessionSwitchResult.SWITCHED) {
+		if (result == SessionSwitchResult.FAILED && user is PublicUser && !user.hasPassword && !user.hasPin) {
+			// (Finly) The stored access token was signed out, for example by a parent changing the profile's PIN: a
+			// profile without a password or PIN just signs in again
+			Timber.i("Stored access token of user ${user.id} was rejected, signing in again without a password")
+			emitAll(authenticateCredential(server, user.name, ""))
+		} else if (result != SessionSwitchResult.SWITCHED) {
 			emit(result.toFailedLoginState(server))
 		} else try {
 			// Update user info
@@ -367,58 +378,79 @@ class AuthenticationRepositoryImpl(
 	override fun hasPin(serverId: UUID, userId: UUID): Boolean =
 		authenticationStore.getUser(serverId, userId)?.serverPin == true
 
-	override suspend fun getSignInOptions(): SignInOptions? = withContext(Dispatchers.IO) {
+	override suspend fun getSignInOptions(userId: UUID?): SignInOptions? = withContext(Dispatchers.IO) {
 		val session = sessionRepository.currentSession.value ?: return@withContext null
+		val targetId = userId ?: session.userId
 		try {
-			val user = Json.parseToJsonElement(userApiClient.request(HttpMethod.GET, "/Users/Me").body.decodeToString()).jsonObject
+			val path = if (targetId == session.userId) "/Users/Me" else "/Users/$targetId"
+			val user = Json.parseToJsonElement(userApiClient.request(HttpMethod.GET, path).body.decodeToString()).jsonObject
+			fun flag(name: String) = user[name]?.jsonPrimitive?.booleanOrNull
+			val hasPin = flag("HasPin") ?: false
 			val options = SignInOptions(
-				hasPassword = user["HasConfiguredPassword"]?.jsonPrimitive?.booleanOrNull ?: true,
-				hasPin = user["HasPin"]?.jsonPrimitive?.booleanOrNull ?: false,
+				hasPassword = flag("HasConfiguredPassword") ?: true,
+				// PinProtected: HasPin is also false when the PIN only can't be used from here
+				pinProtected = flag("PinProtected") ?: hasPin,
+				pinUsable = hasPin,
+				pinSignInDisabled = flag("PinSignInDisabled") ?: false,
 			)
-			authenticationStore.rememberServerPin(session.serverId, session.userId, options.hasPin)
+			Timber.i("Sign in options of user %s: %s", targetId, options)
+			authenticationStore.rememberServerPin(session.serverId, targetId, options.pinProtected)
 			options
 		} catch (err: ApiClientException) {
-			Timber.w(err, "Unable to get sign in options")
+			Timber.w(err, "Unable to get sign in options of user %s", targetId)
 			null
 		} catch (err: IllegalArgumentException) {
 			// An unexpected body, kotlinx.serialization's SerializationException is an IllegalArgumentException
-			Timber.w(err, "Unable to read sign in options")
+			Timber.w(err, "Unable to read sign in options of user %s", targetId)
 			null
 		}
 	}
 
-	override suspend fun setPin(current: String, pin: String?): PinChangeResult = withContext(Dispatchers.IO) {
-		val session = sessionRepository.currentSession.value ?: return@withContext PinChangeResult.FAILED
-		// The current PIN is checked like signing in with it, so it's throttled the same way and can't be guessed here
-		// instead (Finly). A password isn't a PIN, the server throttles those itself.
-		val currentIsPin = isPinFormat(current) && hasPin(session.serverId, session.userId)
-		if (currentIsPin && pinLockoutSeconds(session.serverId, session.userId) > 0) return@withContext PinChangeResult.LOCKED_OUT
+	override suspend fun setPin(current: String?, pin: String?, userId: UUID?): PinChangeResult = withContext(Dispatchers.IO) {
+		val session = sessionRepository.currentSession.value ?: return@withContext PinChangeResult.Refused(null, null)
+		val targetId = userId ?: session.userId
+		val action = if (pin == null) "remove" else "set"
 
 		try {
 			userApiClient.request(
 				method = HttpMethod.POST,
 				pathTemplate = "/Users/Pin",
-				queryParameters = mapOf("userId" to session.userId),
+				queryParameters = mapOf("userId" to targetId),
 				requestBody = UpdateUserPinBody(currentPw = current, newPin = pin, resetPin = pin == null),
 			)
-			authenticationStore.rememberServerPin(session.serverId, session.userId, pin != null)
-			resetPinFailures(session.serverId, session.userId)
-			PinChangeResult.SAVED
+			Timber.i("PIN of user %s: %s done", targetId, action)
+			// A user stored on this device: its PIN flag, and the wrong PINs are forgotten by the server
+			authenticationStore.rememberServerPin(session.serverId, targetId, pin != null)
+			resetPinFailures(session.serverId, targetId)
+			PinChangeResult.Saved
 		} catch (err: InvalidStatusException) {
-			Timber.w(err, "Unable to change the PIN")
-			when {
-				err.status != HttpURLConnection.HTTP_FORBIDDEN -> PinChangeResult.FAILED
-				currentIsPin -> {
-					recordPinFailure(session.serverId, session.userId)
-					if (pinLockoutSeconds(session.serverId, session.userId) > 0) PinChangeResult.LOCKED_OUT
-					else PinChangeResult.WRONG_CURRENT
-				}
-
-				else -> PinChangeResult.WRONG_CURRENT
-			}
+			val refusal = ServerRefusals.take("/Users/Pin")
+			Timber.w(err, "Unable to %s the PIN of user %s: status %d, reason %s", action, targetId, err.status, refusal?.reason)
+			PinChangeResult.Refused(refusal, err.status)
 		} catch (err: ApiClientException) {
-			Timber.w(err, "Unable to change the PIN")
-			PinChangeResult.FAILED
+			Timber.w(err, "Unable to %s the PIN of user %s, the server can't be reached", action, targetId)
+			PinChangeResult.Refused(null, null)
+		}
+	}
+
+	override suspend fun unlockPin(userId: UUID): PinChangeResult = withContext(Dispatchers.IO) {
+		val session = sessionRepository.currentSession.value ?: return@withContext PinChangeResult.Refused(null, null)
+		try {
+			userApiClient.request(
+				method = HttpMethod.POST,
+				pathTemplate = "/Users/Pin/Unlock",
+				queryParameters = mapOf("userId" to userId),
+			)
+			Timber.i("PIN sign in of user %s unlocked", userId)
+			resetPinFailures(session.serverId, userId)
+			PinChangeResult.Saved
+		} catch (err: InvalidStatusException) {
+			val refusal = ServerRefusals.take("/Users/Pin/Unlock")
+			Timber.w(err, "Unable to unlock the PIN of user %s: status %d, reason %s", userId, err.status, refusal?.reason)
+			PinChangeResult.Refused(refusal, err.status)
+		} catch (err: ApiClientException) {
+			Timber.w(err, "Unable to unlock the PIN of user %s, the server can't be reached", userId)
+			PinChangeResult.Refused(null, null)
 		}
 	}
 

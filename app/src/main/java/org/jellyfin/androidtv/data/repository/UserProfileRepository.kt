@@ -18,16 +18,26 @@ import org.jellyfin.sdk.model.api.BaseItemKind
 import org.jellyfin.sdk.model.api.ImageFormat
 import org.jellyfin.sdk.model.api.ImageType
 import org.jellyfin.sdk.model.api.ItemSortBy
+import org.jellyfin.sdk.model.api.UserDto
+import timber.log.Timber
 import java.io.ByteArrayOutputStream
+import java.util.UUID
 
 /**
- * Changes the profile of the signed in user. A TV has no photo gallery or camera, so a profile picture is picked
- * from the posters in the user's own libraries, which also keeps a kid's choice to what their profile can see.
+ * Changes the profile of the signed in user, or (Finly) for an administrator any family member's, given by [userId]
+ * (null means the signed in user). A TV has no photo gallery or camera, so a profile picture is picked from the posters
+ * in that user's own libraries, which also keeps a kid's choice to what their profile can see.
  */
 interface UserProfileRepository {
-	suspend fun getPictureChoices(): List<BaseItemDto>
-	suspend fun setProfilePicture(item: BaseItemDto)
-	suspend fun removeProfilePicture()
+	suspend fun getPictureChoices(userId: UUID? = null): List<BaseItemDto>
+	suspend fun setProfilePicture(item: BaseItemDto, userId: UUID? = null)
+	suspend fun removeProfilePicture(userId: UUID? = null)
+
+	/** Every profile on the server, for an administrator managing the family's profiles (Finly). */
+	suspend fun getFamilyProfiles(): List<UserDto>
+
+	/** One profile, for an administrator (Finly). */
+	suspend fun getProfile(userId: UUID): UserDto
 }
 
 class UserProfileRepositoryImpl(
@@ -43,8 +53,10 @@ class UserProfileRepositoryImpl(
 		const val PICTURE_QUALITY = 90
 	}
 
-	override suspend fun getPictureChoices(): List<BaseItemDto> = withContext(Dispatchers.IO) {
+	override suspend fun getPictureChoices(userId: UUID?): List<BaseItemDto> = withContext(Dispatchers.IO) {
 		api.itemsApi.getItems(
+			// What that user can see, not what the parent choosing for them can
+			userId = userId,
 			includeItemTypes = setOf(BaseItemKind.MOVIE, BaseItemKind.SERIES),
 			recursive = true,
 			imageTypes = setOf(ImageType.PRIMARY),
@@ -54,8 +66,8 @@ class UserProfileRepositoryImpl(
 		).content.items
 	}
 
-	override suspend fun setProfilePicture(item: BaseItemDto) {
-		val userId = sessionRepository.currentSession.value?.userId ?: return
+	override suspend fun setProfilePicture(item: BaseItemDto, userId: UUID?) {
+		val targetId = userId ?: sessionRepository.currentSession.value?.userId ?: return
 
 		val picture = withContext(Dispatchers.IO) {
 			val poster by api.imageApi.getItemImage(
@@ -70,20 +82,30 @@ class UserProfileRepositoryImpl(
 		}
 
 		withContext(Dispatchers.IO) {
-			api.imageApi.postUserImage(userId, FileInfo(picture, "image/jpeg"))
+			api.imageApi.postUserImage(targetId, FileInfo(picture, "image/jpeg"))
 		}
+		Timber.i("Profile picture of user %s changed to the poster of %s", targetId, item.id)
 
-		refreshCurrentUser()
+		refreshUser(targetId)
 	}
 
-	override suspend fun removeProfilePicture() {
-		val userId = sessionRepository.currentSession.value?.userId ?: return
+	override suspend fun removeProfilePicture(userId: UUID?) {
+		val targetId = userId ?: sessionRepository.currentSession.value?.userId ?: return
 
 		withContext(Dispatchers.IO) {
-			api.imageApi.deleteUserImage(userId)
+			api.imageApi.deleteUserImage(targetId)
 		}
+		Timber.i("Profile picture of user %s removed", targetId)
 
-		refreshCurrentUser()
+		refreshUser(targetId)
+	}
+
+	override suspend fun getFamilyProfiles(): List<UserDto> = withContext(Dispatchers.IO) {
+		api.userApi.getUsers().content.sortedBy { it.name?.lowercase() }
+	}
+
+	override suspend fun getProfile(userId: UUID): UserDto = withContext(Dispatchers.IO) {
+		api.userApi.getUserById(userId).content
 	}
 
 	/**
@@ -102,15 +124,18 @@ class UserProfileRepositoryImpl(
 	}
 
 	/**
-	 * Show the new picture in the toolbar straight away and on the user picker next time.
+	 * Show the new picture in the toolbar straight away (for the signed in user) and on the user picker next time.
 	 */
-	private suspend fun refreshCurrentUser() {
+	private suspend fun refreshUser(userId: UUID) {
 		val session = sessionRepository.currentSession.value ?: return
-		val user = withContext(Dispatchers.IO) { api.userApi.getCurrentUser().content }
-		userRepository.setCurrentUser(user)
+		val isCurrent = userId == session.userId
+		val user = withContext(Dispatchers.IO) {
+			if (isCurrent) api.userApi.getCurrentUser().content else api.userApi.getUserById(userId).content
+		}
+		if (isCurrent) userRepository.setCurrentUser(user)
 
-		authenticationStore.getUser(session.serverId, session.userId)?.let { storedUser ->
-			authenticationStore.putUser(session.serverId, session.userId, storedUser.copy(imageTag = user.primaryImageTag))
+		authenticationStore.getUser(session.serverId, userId)?.let { storedUser ->
+			authenticationStore.putUser(session.serverId, userId, storedUser.copy(imageTag = user.primaryImageTag))
 		}
 	}
 }

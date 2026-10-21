@@ -18,6 +18,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.work.WorkManager
 import androidx.work.await
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
@@ -26,6 +27,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import org.jellyfin.androidtv.R
 import org.jellyfin.androidtv.auth.repository.SessionRepository
 import org.jellyfin.androidtv.auth.repository.SessionRepositoryState
@@ -52,12 +54,16 @@ import org.koin.android.ext.android.inject
 import org.koin.androidx.viewmodel.ext.android.viewModel
 import timber.log.Timber
 import java.util.UUID
+import kotlin.time.Duration.Companion.seconds
 
 class StartupActivity : FragmentActivity() {
 	companion object {
 		const val EXTRA_ITEM_ID = "ItemId"
 		const val EXTRA_ITEM_IS_USER_VIEW = "ItemIsUserView"
 		const val EXTRA_HIDE_SPLASH = "HideSplash"
+
+		// How long to wait for the signed in user to load before asking to sign in again
+		private val CURRENT_USER_TIMEOUT = 15.seconds
 	}
 
 	private val startupViewModel: StartupViewModel by viewModel()
@@ -108,32 +114,50 @@ class StartupActivity : FragmentActivity() {
 		applyTheme()
 	}
 
-	private fun onPermissionsGranted() = sessionRepository.state
+	// (Finly) Follows the session as well as the state: a quick switch can go from ready back to ready before the state
+	// alone is seen to change, and picking a profile then did nothing
+	private fun onPermissionsGranted() = combine(sessionRepository.state, sessionRepository.currentSession) { state, session -> state to session }
 		.flowWithLifecycle(lifecycle, Lifecycle.State.RESUMED)
-		.filter { it == SessionRepositoryState.READY }
-		.map { sessionRepository.currentSession.value }
+		.filter { (state, _) -> state == SessionRepositoryState.READY }
+		.map { (_, session) -> session }
 		.distinctUntilChanged()
 		.onEach { session ->
-			if (session != null) {
+			if (session != null && sessionRepository.lockIfNeeded(beforeLock = { mediaManager.clearAudioQueue() })) {
+				// (Finly) A PIN protected profile left long enough asks for its PIN here, before the home screen opens:
+				// locking it after the home screen opened bounced straight back to this screen. The session going shows
+				// the profiles.
+				LeanbackChannelWorker.clear(workManager)
+			} else if (session != null) {
 				Timber.i("Found a session in the session repository, waiting for the currentUser in the application class.")
 
 				showSplash()
 
-				val currentUser = userRepository.currentUser.first { it != null }
-				Timber.i("CurrentUser changed to ${currentUser?.id} while waiting for startup.")
+				// Don't wait on the splash screen forever when the user never loads
+				val currentUser = withTimeoutOrNull(CURRENT_USER_TIMEOUT) { userRepository.currentUser.first { it != null } }
+				if (currentUser == null) {
+					// The session going shows the profiles
+					Timber.w("The current user didn't load, signing in again")
+					sessionRepository.destroyCurrentSession()
+					return@onEach
+				}
+				Timber.i("CurrentUser changed to ${currentUser.id} while waiting for startup.")
 
 				lifecycleScope.launch {
 					openNextActivity()
 				}
 			} else {
-				// Clear audio queue in case left over from last run
-				mediaManager.clearAudioQueue()
-
-				val server = startupViewModel.getLastServer()
-				if (server != null) showServer(server.id)
-				else showServerSelection()
+				showSignIn()
 			}
 		}.launchIn(lifecycleScope)
+
+	private suspend fun showSignIn() {
+		// Clear audio queue in case left over from last run
+		mediaManager.clearAudioQueue()
+
+		val server = startupViewModel.getLastServer()
+		if (server != null) showServer(server.id)
+		else showServerSelection()
+	}
 
 	private suspend fun openNextActivity() {
 		val itemId = when {

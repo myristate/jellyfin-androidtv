@@ -6,6 +6,7 @@ import static org.koin.java.KoinJavaComponent.inject;
 import android.app.AlertDialog;
 import android.content.DialogInterface;
 import android.os.Handler;
+import android.os.SystemClock;
 import android.view.Display;
 import android.view.WindowManager;
 
@@ -113,6 +114,10 @@ public class PlaybackController implements PlaybackControllerNotifiable {
     // tmp position used when seeking
     private long mSeekPosition = -1;
     private boolean wasSeeking = false;
+    // (Finly) When the pending seek started: one that never finishes (the player stuck buffering) mustn't block every
+    // later seek, which made fast forward and rewind stop working
+    private long seekStartedAt = 0;
+    private static final long SEEK_GUARD_TIMEOUT = 5000;
     private boolean finishedInitialSeek = false;
 
     private LocalDateTime mCurrentProgramEnd = null;
@@ -130,6 +135,16 @@ public class PlaybackController implements PlaybackControllerNotifiable {
     // Increases with every play and stop, so responses for a replaced request can be recognised and dropped
     private int playRequest = 0;
     private final Runnable liveTvStartWatchdog = this::onLiveTvStartTimeout;
+    // Other videos may take longer to start, but not when the device's video decoder has hung
+    private static final long DECODER_START_TIMEOUT = 15000;
+    private final Runnable decoderStartWatchdog = this::onDecoderStartTimeout;
+    // A Live TV retry waiting to start, stop() cancels it: the player is already idle then, so playRequest wouldn't change
+    private Runnable liveTvRetry = null;
+    // (Finly) A film or episode stuck buffering after it started, or after a seek: report it and restart the stream once
+    private static final long STALL_TIMEOUT = 20000;
+    private final Runnable stallWatchdog = this::onStallTimeout;
+    private long bufferingStartedAt = 0;
+    private int stallRecoveries = 0;
 
     private Display.Mode[] mDisplayModes;
     private RefreshRateSwitchingBehavior refreshRateSwitchingBehavior = RefreshRateSwitchingBehavior.DISABLED;
@@ -175,6 +190,10 @@ public class PlaybackController implements PlaybackControllerNotifiable {
         mItems = items;
         mCurrentIndex = 0;
         liveTvStartRetries = 0;
+        // The last channel's programme times don't belong to what plays next
+        mCurrentProgramStart = null;
+        mCurrentProgramEnd = null;
+        stallRecoveries = 0;
         // A new channel or item starts with a clean slate: an error on the last one shouldn't force transcoding here
         playbackRetries = 0;
         directStreamLiveTv = userPreferences.getValue().get(UserPreferences.Companion.getLiveTvDirectPlayEnabled());
@@ -276,6 +295,10 @@ public class PlaybackController implements PlaybackControllerNotifiable {
 
         playbackRetries++;
         lastPlaybackError = Instant.now().toEpochMilli();
+        Timber.w("Player error %d in a row for %s at %d ms (play method %s); the next try %s", playbackRetries,
+                getCurrentlyPlayingItem() == null ? "?" : getCurrentlyPlayingItem().getName(), mCurrentPosition,
+                mCurrentStreamInfo == null ? "?" : mCurrentStreamInfo.getPlayMethod(),
+                playbackRetries >= 3 ? "isn't made, closing the player" : playbackRetries == 1 ? "won't direct play" : "transcodes");
 
         if (playbackRetries < 3) {
             if (mFragment != null)
@@ -303,10 +326,10 @@ public class PlaybackController implements PlaybackControllerNotifiable {
         }
     }
 
-    private Display.Mode findBestDisplayMode(MediaStream videoStream) {
-        if (mFragment == null || mDisplayModes == null || videoStream.getRealFrameRate() == null)
+    @Nullable
+    private Display.Mode findBestDisplayMode(@Nullable MediaStream videoStream) {
+        if (mFragment == null || mDisplayModes == null || videoStream == null || videoStream.getRealFrameRate() == null || videoStream.getWidth() == null || videoStream.getHeight() == null)
             return null;
-
 
         int curWeight = 0;
         Display.Mode bestMode = null;
@@ -598,10 +621,12 @@ public class PlaybackController implements PlaybackControllerNotifiable {
                 }
             });
         } else {
+            final int request = playRequest;
             playbackManager.getValue().getVideoStreamInfo(mFragment, internalOptions, position * 10000, new Response<StreamInfo>(mFragment.getLifecycle()) {
                 @Override
                 public void onResponse(StreamInfo internalResponse) {
-                    if (!isActive()) return;
+                    // A newer play or a stop replaced this request, for example next pressed twice quickly
+                    if (!isActive() || request != playRequest) return;
                     Timber.i("Internal player would %s", internalResponse.getPlayMethod().equals(PlayMethod.TRANSCODE) ? "transcode" : "direct stream");
                     if (mVideoManager == null)
                         return;
@@ -612,10 +637,9 @@ public class PlaybackController implements PlaybackControllerNotifiable {
 
                 @Override
                 public void onError(Exception exception) {
-                    if (!isActive()) return;
-                    Timber.e(exception, "Unable to get stream info for internal player");
-                    if (mVideoManager == null)
-                        return;
+                    if (!isActive() || request != playRequest) return;
+                    // Say why and close the player, instead of leaving it loading forever
+                    handlePlaybackInfoError(exception);
                 }
             });
         }
@@ -695,12 +719,17 @@ public class PlaybackController implements PlaybackControllerNotifiable {
                 // User explicitly disabled subtitles
                 mCurrentOptions.setSubtitleStreamIndex(null);
             } else if (response.getMediaSource().getMediaStreams() != null) {
-                // Find subtitle stream matching saved language
+                // Find subtitle stream matching saved language, keeping the requested stream if it matches
+                // (e.g. when playback restarts to switch between baked and non-baked subtitles)
+                Integer requestedIndex = mCurrentOptions.getSubtitleStreamIndex();
                 Integer matchingIndex = null;
                 for (MediaStream stream : response.getMediaSource().getMediaStreams()) {
                     if (stream.getType() == MediaStreamType.SUBTITLE && lastSubtitleLanguage.equals(stream.getLanguage())) {
-                        matchingIndex = stream.getIndex();
-                        break;
+                        if (matchingIndex == null) matchingIndex = stream.getIndex();
+                        if (requestedIndex != null && requestedIndex == stream.getIndex()) {
+                            matchingIndex = requestedIndex;
+                            break;
+                        }
                     }
                 }
                 mCurrentOptions.setSubtitleStreamIndex(matchingIndex);
@@ -714,6 +743,9 @@ public class PlaybackController implements PlaybackControllerNotifiable {
         Timber.i("default sub index set to %s remote default %s", mCurrentOptions.getSubtitleStreamIndex(), response.getMediaSource().getDefaultSubtitleStreamIndex());
 
         Long mbPos = position * 10000;
+
+        // (Finly) How this will be played, for diagnostics
+        Timber.i("Playback plan: %s", PlaybackControllerHelperKt.describePlayback(this));
 
         // set refresh rate
         if (refreshRateSwitchingBehavior != RefreshRateSwitchingBehavior.DISABLED) {
@@ -732,10 +764,16 @@ public class PlaybackController implements PlaybackControllerNotifiable {
                 // Give the stream a limited time to show a picture from here, see onLiveTvStartTimeout
                 mHandler.removeCallbacks(liveTvStartWatchdog);
                 mHandler.postDelayed(liveTvStartWatchdog, LIVE_TV_START_TIMEOUT);
+            } else {
+                mHandler.removeCallbacks(decoderStartWatchdog);
+                mHandler.postDelayed(decoderStartWatchdog, DECODER_START_TIMEOUT);
             }
         }
 
-        PlaybackControllerHelperKt.applyMediaSegments(this, item, () -> {
+        // The segments arrive later: playback may have been stopped or closed in the meantime, for example when a Live
+        // TV channel didn't start
+        final int request = playRequest;
+        PlaybackControllerHelperKt.applyMediaSegments(this, item, () -> request == playRequest && mVideoManager != null && mFragment != null, () -> {
             // Set video start delay
             long videoStartDelay = userPreferences.getValue().get(UserPreferences.Companion.getVideoStartDelay());
             if (videoStartDelay > 0) {
@@ -928,9 +966,10 @@ public class PlaybackController implements PlaybackControllerNotifiable {
         // Wait a little longer each time, a busy tuner or server often only needs a moment. Skip the retry when
         // something else was played in the meantime.
         final int request = playRequest;
-        mHandler.postDelayed(() -> {
+        liveTvRetry = () -> {
             if (request == playRequest && mFragment != null) play(0);
-        }, 1000L * liveTvStartRetries);
+        };
+        mHandler.postDelayed(liveTvRetry, 1000L * liveTvStartRetries);
         return true;
     }
 
@@ -938,6 +977,7 @@ public class PlaybackController implements PlaybackControllerNotifiable {
         if (!isLiveTv || isPlaying() || isPaused()) return;
         BaseItemDto channel = getCurrentlyPlayingItem();
         DiagnosticsLog.INSTANCE.report("Live TV channel did not start: " + (channel == null ? "?" : channel.getName()), PlaybackStartTiming.events());
+        if (closeForStuckDecoder()) return;
         if (retryLiveTvStart()) return;
 
         Timber.e("Live TV channel did not start after %s retries", LIVE_TV_START_RETRIES);
@@ -947,8 +987,34 @@ public class PlaybackController implements PlaybackControllerNotifiable {
         }
     }
 
+    private void onDecoderStartTimeout() {
+        if (isLiveTv || isPlaying() || isPaused()) return;
+        if (mVideoManager == null || !mVideoManager.isVideoDecoderStuck()) return;
+        BaseItemDto item = getCurrentlyPlayingItem();
+        DiagnosticsLog.INSTANCE.report("Video did not start: " + (item == null ? "?" : item.getName()), PlaybackStartTiming.events());
+        closeForStuckDecoder();
+    }
+
+    /**
+     * Close the player when the device's video decoder has hung. Trying again would hang the same way, until the
+     * device is restarted, so say that instead.
+     */
+    private boolean closeForStuckDecoder() {
+        if (mVideoManager == null || mFragment == null || !mVideoManager.isVideoDecoderStuck()) return false;
+
+        Timber.e("The device's video decoder isn't responding");
+        Utils.showToast(mFragment.getContext(), mFragment.getString(R.string.msg_playback_decoder_stuck));
+        mFragment.closePlayer();
+        return true;
+    }
+
     public void stop() {
         mHandler.removeCallbacks(liveTvStartWatchdog);
+        mHandler.removeCallbacks(decoderStartWatchdog);
+        mHandler.removeCallbacks(stallWatchdog);
+        bufferingStartedAt = 0;
+        if (liveTvRetry != null) mHandler.removeCallbacks(liveTvRetry);
+        liveTvRetry = null;
         refreshCurrentPosition();
         Timber.i("stop called at %s", mCurrentPosition);
         stopReportLoop();
@@ -1054,15 +1120,18 @@ public class PlaybackController implements PlaybackControllerNotifiable {
             return;
         }
 
-        if (wasSeeking) {
-            Timber.d("Previous seek has not finished - cancelling seek from %s to %d", mCurrentPosition, pos);
+        long pendingFor = SystemClock.elapsedRealtime() - seekStartedAt;
+        if (wasSeeking && pendingFor < SEEK_GUARD_TIMEOUT) {
+            Timber.w("Previous seek has not finished after %d ms - cancelling seek from %s to %d (state %s, buffered to %d)", pendingFor, mCurrentPosition, pos, mPlaybackState, getBufferedPosition());
             if (isPaused()) {
                 refreshCurrentPosition();
                 play(mCurrentPosition);
             }
             return;
         }
+        if (wasSeeking) Timber.w("Previous seek still not finished after %d ms (state %s), seeking again to %d", pendingFor, mPlaybackState, pos);
         wasSeeking = true;
+        seekStartedAt = SystemClock.elapsedRealtime();
 
         // Stop playback when the requested seek position is at the end of the video
         if (skipToNext && pos >= (getDuration() - 100)) {
@@ -1162,6 +1231,9 @@ public class PlaybackController implements PlaybackControllerNotifiable {
         final BaseItemDto channel = getCurrentlyPlayingItem();
         if (channel.getType() == BaseItemKind.TV_CHANNEL) {
             PlaybackControllerHelperKt.getLiveTvChannel(this, channel.getId(), updatedChannel -> {
+                // The answer for a channel that is no longer playing, after a quick channel change
+                BaseItemDto playing = getCurrentlyPlayingItem();
+                if (playing == null || !playing.getId().equals(channel.getId())) return null;
                 BaseItemDto program = updatedChannel.getCurrentProgram();
                 if (program != null) {
                     mCurrentProgramEnd = program.getEndDate();
@@ -1304,6 +1376,48 @@ public class PlaybackController implements PlaybackControllerNotifiable {
     }
 
     @Override
+    public void onBuffering(boolean buffering) {
+        // Only once playing (or seeking): the first start has its own watchdogs
+        boolean started = mPlaybackState == PlaybackState.PLAYING || mPlaybackState == PlaybackState.SEEKING;
+        if (buffering && started && bufferingStartedAt == 0) {
+            bufferingStartedAt = SystemClock.elapsedRealtime();
+            // Expected after a seek, a stall otherwise
+            String message = mPlaybackState == PlaybackState.SEEKING ? "Buffering %s after a seek to %d ms (buffered to %d ms, play method %s)" : "Rebuffering %s at %d ms (buffered to %d ms, play method %s)";
+            Object[] args = { getCurrentlyPlayingItem() == null ? "?" : getCurrentlyPlayingItem().getName(), mCurrentPosition, getBufferedPosition(), mCurrentStreamInfo == null ? "?" : mCurrentStreamInfo.getPlayMethod() };
+            if (mPlaybackState == PlaybackState.SEEKING) Timber.i(message, args);
+            else Timber.w(message, args);
+            if (!isLiveTv) {
+                mHandler.removeCallbacks(stallWatchdog);
+                mHandler.postDelayed(stallWatchdog, STALL_TIMEOUT);
+            }
+        } else if (!buffering && bufferingStartedAt != 0) {
+            Timber.i("Playback resumed after rebuffering for %d ms at %d ms", SystemClock.elapsedRealtime() - bufferingStartedAt, mCurrentPosition);
+            bufferingStartedAt = 0;
+            mHandler.removeCallbacks(stallWatchdog);
+        }
+    }
+
+    private void onStallTimeout() {
+        if (bufferingStartedAt == 0 || isLiveTv || mFragment == null) return;
+        BaseItemDto item = getCurrentlyPlayingItem();
+        String name = item == null ? "?" : item.getName();
+        long stuckFor = SystemClock.elapsedRealtime() - bufferingStartedAt;
+        Timber.e("Playback of %s stuck buffering for %d ms at %d ms, buffered to %d ms", name, stuckFor, mCurrentPosition, getBufferedPosition());
+        DiagnosticsLog.INSTANCE.report("Playback stalled: " + name, PlaybackControllerHelperKt.describePlayback(this));
+
+        if (closeForStuckDecoder()) return;
+        if (stallRecoveries < 1) {
+            // Starting the stream again from where it got stuck usually gets it going (a remux or transcode is started
+            // again on the server too)
+            stallRecoveries++;
+            Utils.showToast(mFragment.getContext(), mFragment.getString(R.string.msg_playback_stalled_restarting));
+            refreshStream();
+        } else {
+            Utils.showToast(mFragment.getContext(), mFragment.getString(R.string.msg_playback_stalled));
+        }
+    }
+
+    @Override
     public void onPrepared() {
         if (mPlaybackState == PlaybackState.BUFFERING) {
             if (mFragment != null) {
@@ -1359,9 +1473,12 @@ public class PlaybackController implements PlaybackControllerNotifiable {
             return;
         }
 
+        BaseItemDto failedItem = getCurrentlyPlayingItem();
         if (isLiveTv) {
-            BaseItemDto channel = getCurrentlyPlayingItem();
-            DiagnosticsLog.INSTANCE.report("Live TV player error: " + (channel == null ? "?" : channel.getName()), PlaybackStartTiming.events());
+            DiagnosticsLog.INSTANCE.report("Live TV player error: " + (failedItem == null ? "?" : failedItem.getName()), PlaybackStartTiming.events());
+        } else {
+            // (Finly) Films and episodes too, with how they were being played
+            DiagnosticsLog.INSTANCE.report("Player error: " + (failedItem == null ? "?" : failedItem.getName()), PlaybackControllerHelperKt.describePlayback(this));
         }
 
         if (isLiveTv && directStreamLiveTv) {
@@ -1393,6 +1510,7 @@ public class PlaybackController implements PlaybackControllerNotifiable {
         if (isPlaying()) {
             if (isLiveTv && liveTvStartRetries > 0) liveTvStartRetries = 0;
             mHandler.removeCallbacks(liveTvStartWatchdog);
+            mHandler.removeCallbacks(decoderStartWatchdog);
             if (!spinnerOff) {
                 if (mStartPosition > 0) {
                     initialSeek(mStartPosition);

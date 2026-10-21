@@ -126,6 +126,7 @@ public class CustomPlaybackOverlayFragment extends Fragment implements LiveTvGui
     private boolean mIsVisible = false;
     private boolean mPopupPanelVisible = false;
     private boolean navigating = false;
+    private boolean restored = false;
 
     protected LeanbackOverlayFragment leanbackOverlayFragment;
 
@@ -147,6 +148,13 @@ public class CustomPlaybackOverlayFragment extends Fragment implements LiveTvGui
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        // (Finly) Re-created by the system, for example after a settings change while the app was in the background:
+        // don't start playing again from the beginning on its own, possibly with nobody watching, close the player
+        if (savedInstanceState != null) {
+            restored = true;
+            return;
+        }
 
         // stop any audio that may be playing
         mediaManager.getValue().stopAudio(true);
@@ -220,7 +228,7 @@ public class CustomPlaybackOverlayFragment extends Fragment implements LiveTvGui
         super.onViewCreated(view, savedInstanceState);
 
         if (mItemsToPlay == null || mItemsToPlay.isEmpty()) {
-            Utils.showToast(requireContext(), getString(R.string.msg_no_playable_items));
+            if (!restored) Utils.showToast(requireContext(), getString(R.string.msg_no_playable_items));
             closePlayer();
             return;
         }
@@ -740,7 +748,9 @@ public class CustomPlaybackOverlayFragment extends Fragment implements LiveTvGui
 
     public void switchChannel(UUID id, boolean hideGuide) {
         lastRequestedChannelId = id;
-        if (playbackControllerContainer.getValue().getPlaybackController().getCurrentlyPlayingItem().getId().equals(id)) {
+        // Only when no other channel is being looked up: after a quick up and down the playing channel is still the
+        // first one, but the lookup for the second would start it
+        if (!CustomPlaybackOverlayFragmentHelperKt.isChannelRequestPending() && playbackControllerContainer.getValue().getPlaybackController().getCurrentlyPlayingItem().getId().equals(id)) {
             // same channel, just dismiss overlay
             if (hideGuide)
                 hideGuide();
@@ -766,7 +776,7 @@ public class CustomPlaybackOverlayFragment extends Fragment implements LiveTvGui
         super.onResume();
 
         // Close player when resuming without a valid playback controller
-        if (playbackControllerContainer.getValue().getPlaybackController() == null || !playbackControllerContainer.getValue().getPlaybackController().hasFragment()) {
+        if (restored || playbackControllerContainer.getValue().getPlaybackController() == null || !playbackControllerContainer.getValue().getPlaybackController().hasFragment()) {
             closePlayer();
 
             return;

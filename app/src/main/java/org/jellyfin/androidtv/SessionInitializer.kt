@@ -12,6 +12,7 @@ import kotlinx.coroutines.launch
 import org.jellyfin.androidtv.auth.repository.SessionRepository
 import org.jellyfin.androidtv.di.KoinInitializer
 import org.jellyfin.androidtv.ui.livetv.clearTvManagerOnProfileChange
+import org.jellyfin.androidtv.ui.playback.MediaManager
 
 @Suppress("unused")
 class SessionInitializer : Initializer<Unit> {
@@ -32,7 +33,8 @@ class SessionInitializer : Initializer<Unit> {
 		// the app's own screens, such as to the external player screen and back, doesn't.
 		ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
 			override fun onStop(owner: LifecycleOwner) {
-				koin.get<SessionRepository>().onBackgrounded()
+				// Music playing on means someone is listening, not that the TV was left
+				if (!koin.get<MediaManager>().isPlayingAudio) koin.get<SessionRepository>().onBackgrounded()
 			}
 		})
 	}

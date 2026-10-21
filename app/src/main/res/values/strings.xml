@@ -699,14 +699,27 @@
     <string name="eac3_atmos">DD+ Atmos</string>
     <string name="truehd_atmos">TrueHD Atmos</string>
     <string name="pin_enter_for">Enter the PIN for %1$s</string>
-    <string name="pin_wrong">Wrong PIN, try again</string>
-    <string name="pin_locked_out">Too many wrong PINs, try again in %1$d seconds</string>
+    <string name="pin_locked_out">Too many wrong PINs. Try again in %1$d seconds.</string>
     <string name="pin_current">Enter your current PIN</string>
     <string name="pin_current_password">Enter your password to set a PIN</string>
-    <string name="pin_current_wrong">That isn\'t right, try again</string>
+    <!-- (Finly) Refusals from the server, the same wording as the web client (finly/SIGN-IN.md) -->
+    <string name="refusal_wrong_pin">That PIN isn\'t right. Try again.</string>
+    <string name="refusal_wrong_password">That password isn\'t right. Try again.</string>
+    <string name="refusal_too_many_attempts">Too many wrong tries. Try again in %1$d seconds.</string>
+    <string name="refusal_pin_locked_out">Too many wrong PINs. Try again in %1$d seconds.</string>
+    <string name="refusal_pin_disabled">Too many wrong PINs, so PIN sign in is turned off. Sign in with your password, or ask a parent to unlock it.</string>
+    <string name="refusal_password_required">Away from home you need a password to sign in. Ask a parent to set one.</string>
+    <string name="refusal_not_allowed">You\'re not allowed to do that. Ask a parent.</string>
+    <string name="refusal_unreachable">Can\'t reach the Finly server. Check the connection and try again.</string>
+    <string name="pin_current_password_change">Enter your password to change or remove your PIN</string>
     <string name="pin_continue">Continue</string>
-    <string name="pin_locked_out_minutes">Too many wrong PINs, try again in %1$d minutes</string>
-    <string name="pin_sign_in_refused">The server won\'t let %1$s sign in right now. The profile may be outside its allowed hours or turned off, or PIN sign-in may be paused after too many wrong PINs. Try the password, or ask a parent.</string>
+    <string name="pin_profile_description_other">The PIN is kept on the server, so it works on every TV and in the web app at home. A profile with a PIN locks again when the TV has been left for %1$d minutes.</string>
+    <string name="pin_use_password">Use your password instead</string>
+    <string name="pin_ask_parent">Ask a parent to change or remove your PIN.</string>
+    <string name="pin_unlock">Unlock PIN</string>
+    <string name="pin_unlock_description">PIN sign in is turned off after too many wrong PINs.</string>
+    <string name="pin_unlocked">PIN sign in is turned back on.</string>
+    <string name="pin_locked_out_minutes">Too many wrong PINs. Try again in %1$d minutes.</string>
     <string name="pin_delete_digit">Delete digit</string>
     <string name="pin_profile">Profile PIN</string>
     <string name="pin_profile_enabled">On, asks for a PIN before opening %1$s</string>
@@ -720,7 +733,6 @@
     <string name="pin_mismatch">The PINs didn\'t match, start again</string>
     <string name="pin_saved">PIN saved</string>
     <string name="pin_removed">PIN removed</string>
-    <string name="pin_save_failed">Could not save the PIN</string>
     <string name="kids_tag_add">Allow for kids</string>
     <string name="remove_button">Remove</string>
     <string name="remove_from_profile">Remove from %1$s\'s profile</string>
@@ -752,6 +764,7 @@
     <string name="msg_live_tv_off_air">This channel isn\'t broadcasting right now</string>
     <string name="msg_live_tv_busy">All the TV tuners are in use right now. Try again when a recording or another TV has finished</string>
     <string name="msg_live_tv_off_air_short">Not broadcasting right now</string>
+    <string name="msg_playback_decoder_stuck">The video player on this device has stopped responding. Restart the device, then try again</string>
     <string name="msg_live_tv_failed">This channel couldn\'t be started. Try again in a moment or pick another channel</string>
     <string name="change_server">Change server (%1$s)</string>
     <string name="signed_in_as">Signed in as %1$s</string>
@@ -765,7 +778,13 @@
     <string name="profile_picture_removed">Profile picture removed</string>
     <string name="profile_picture_failed">Could not change the profile picture. The server may not allow this profile to change its picture.</string>
     <string name="profile_picture_none">No posters found</string>
+    <string name="family_profiles">Family profiles</string>
+    <string name="family_profiles_description">Change anyone\'s PIN or profile picture</string>
+    <string name="family_parent">Parent</string>
+    <string name="family_picture_description">Pick a poster from the films and shows they can see</string>
     <string name="profile_switch">Switch profile</string>
+    <string name="msg_playback_stalled_restarting">Playback got stuck, starting the stream again…</string>
+    <string name="msg_playback_stalled">Playback is still stuck. Check the network, or stop and try again in a moment.</string>
     <string name="profile_switch_description">Go back to \"Who\'s watching?\"</string>
     <!-- (Finly) TV tuner signal -->
     <string name="signal_readout">Signal %1$d%% · Quality %2$d%%</string>

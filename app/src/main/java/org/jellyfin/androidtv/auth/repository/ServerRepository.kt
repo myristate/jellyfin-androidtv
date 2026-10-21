@@ -25,6 +25,7 @@ import org.jellyfin.sdk.api.client.extensions.brandingApi
 import org.jellyfin.sdk.api.client.extensions.systemApi
 import org.jellyfin.sdk.discovery.RecommendedServerInfo
 import org.jellyfin.sdk.discovery.RecommendedServerInfoScore
+import org.jellyfin.sdk.discovery.RecommendedServerIssue
 import org.jellyfin.sdk.model.ServerVersion
 import org.jellyfin.sdk.model.api.BrandingOptionsDto
 import org.jellyfin.sdk.model.api.ServerDiscoveryInfo
@@ -117,7 +118,9 @@ class ServerRepositoryImpl(
 				}
 
 				else -> {
-					badRecommendations += recommendedServer
+					// The SDK only accepts "Jellyfin Server" as product name, also accept Finly servers
+					if (recommendedServer.isFinlyServer()) goodRecommendations += recommendedServer
+					else badRecommendations += recommendedServer
 					false
 				}
 			}
@@ -269,3 +272,10 @@ class ServerRepositoryImpl(
 		)
 	}
 }
+
+/**
+ * Whether this recommendation is a Finly server that was only rejected for its product name.
+ */
+private fun RecommendedServerInfo.isFinlyServer(): Boolean =
+	systemInfo.getOrNull()?.productName == "Finly Server" &&
+		issues.all { it is RecommendedServerIssue.InvalidProductName }
