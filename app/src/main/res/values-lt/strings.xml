@@ -580,7 +580,7 @@
     </plurals>
     <string name="pref_subtitles_bold">Paryškintas tekstas</string>
     <string name="preference_enable_pgs">Tiesiogiai paleisti PGS subtitrus</string>
-    <string name="lbl_from_beginning">Paleisti nuo pradžios</string>
+    <string name="lbl_from_beginning">Paleisti nuo pradžių</string>
     <string name="speech_error_no_permission">Nėra leidimo naudotis mikrofonu. Įjunkite jį sistemos nustatymuose.</string>
     <string name="speech_error_unavailable">Jūsų įrenginyje kalbos atpažinimo funkcija nepasiekiama.</string>
     <string name="speech_error_unknown">Atpažįstant kalbą įvyko nenumatyta klaida.</string>
@@ -710,4 +710,5 @@
     </plurals>
     <string name="tv_provider_enabled">Integracija su Android TV pagrindiniu ekranu</string>
     <string name="tv_provider_enabled_description">Rodyti Jellyfin kanalus ir rekomendacijas Android TV pagrindiniame ekrane</string>
+    <string name="lbl_3d">3D</string>
 </resources>

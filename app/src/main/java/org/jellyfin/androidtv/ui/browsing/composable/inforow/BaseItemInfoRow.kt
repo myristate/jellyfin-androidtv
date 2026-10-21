@@ -31,6 +31,7 @@ import org.jellyfin.sdk.model.api.MediaStream
 import org.jellyfin.sdk.model.api.MediaStreamType
 import org.jellyfin.sdk.model.api.SeriesStatus
 import org.jellyfin.sdk.model.api.VideoRangeType
+import org.jellyfin.sdk.model.api.Video3dFormat
 import org.jellyfin.sdk.model.extensions.ticks
 import org.koin.compose.koinInject
 import java.time.LocalDateTime
@@ -210,6 +211,15 @@ fun InfoRowMediaDetails(mediaSource: MediaSourceInfo) {
 	val videoCodec = videoStream?.codec?.lowercase()?.let { videoCodecNames[it] ?: it.uppercase() }
 	if (!videoCodec.isNullOrBlank()) {
 		InfoRowItem(contentDescription = null, colors = InfoRowColors.Default) { Text(videoCodec) }
+	}
+
+	if (mediaSource.video3dFormat != null) {
+		InfoRowItem(
+			contentDescription = null,
+			colors = InfoRowColors.Default,
+		) {
+			Text(stringResource(R.string.lbl_3d))
+		}
 	}
 
 	// Video range, Dolby Vision with its profile such as P8.1 (Finly)

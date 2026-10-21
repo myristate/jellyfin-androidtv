@@ -502,7 +502,7 @@
     <string name="server_issue_ssl_handshake">SSL-sambinding miseydnaðist</string>
     <string name="server_issue_timeout">Sambindingin eydnaðist ikki innan svarfreistina</string>
     <string name="pref_telemetry_category">Sormeldingar</string>
-    <string name="lbl_clear_queue">Reinsa spælirøðina</string>
+    <string name="lbl_clear_queue">Tøm spælirøðina</string>
     <string name="current_queue">Núverandi spælirøð</string>
     <string name="lbl_load_guide_data">Innles skráadátur</string>
     <string name="last_use">Seinastu nýtslu</string>
@@ -643,7 +643,7 @@
     <string name="pref_refresh_rate_scale_on_tv">Skift á sjónvarpi</string>
     <string name="pref_refresh_rate_scale_on_device">Skift á eind</string>
     <string name="pref_device_model">Modell eindarinnar</string>
-    <string name="lbl_more_like_this">Fleiri líkir hesum</string>
+    <string name="lbl_more_like_this">Tílíkir miðlar</string>
     <string name="video_start_delay">Seinka kykmyndabyrjan</string>
     <string name="grid_direction">Talvukós</string>
     <string name="lbl_colored_backgrounds">Flokslittar bakgrundir</string>
@@ -696,4 +696,5 @@
     <string name="tv_provider_enabled_description">Vís Jellyfin-rásir og tilmælir á Android TV-forsíðuni</string>
     <string name="tv_provider_enabled">Android TV-forsíðuveiting</string>
     <string name="dovi_profile_7_description">Tveylags við víðkanarlagi</string>
+    <string name="lbl_3d">3D</string>
 </resources>
