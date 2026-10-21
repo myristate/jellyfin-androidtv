@@ -107,6 +107,17 @@ class GuideLivePreview(
 		previewChannel = null
 	}
 
+	/**
+	 * Stop previewing and release the player, keeping the highlighted channel for [resume]. Some devices (the NVIDIA
+	 * Shield) don't cope well with a second video decoder, full screen playback opens its own straight after.
+	 */
+	fun pause() {
+		stop()
+		player?.release()
+		player = null
+		playerView.player = null
+	}
+
 	/** Preview the last highlighted channel again, for example when coming back to the guide. */
 	fun resume() {
 		handler.removeCallbacks(startPending)

@@ -90,9 +90,10 @@ interface SessionRepository {
 
 	/**
 	 * Sign out of a PIN protected profile when the app was in the background for longer than [PIN_LOCK_TIMEOUT].
+	 * [beforeLock] runs first, while the session can still reach the server, for example to stop playback.
 	 * @return true when the session was signed out.
 	 */
-	fun lockIfNeeded(): Boolean
+	fun lockIfNeeded(beforeLock: () -> Unit = {}): Boolean
 
 	companion object {
 		val PIN_LOCK_TIMEOUT: Duration = Duration.ofMinutes(5)
@@ -212,7 +213,7 @@ class SessionRepositoryImpl(
 		externalPlaybackActive = active
 	}
 
-	override fun lockIfNeeded(): Boolean {
+	override fun lockIfNeeded(beforeLock: () -> Unit): Boolean {
 		val since = backgroundedAt ?: return false
 		backgroundedAt = null
 
@@ -221,6 +222,7 @@ class SessionRepositoryImpl(
 		if (authenticationStore.getUser(session.serverId, session.userId)?.serverPin != true) return false
 
 		Timber.i("Locking PIN protected profile of user ${session.userId} after the TV was left idle")
+		beforeLock()
 		destroyCurrentSession()
 		return true
 	}
@@ -269,9 +271,10 @@ class SessionRepositoryImpl(
 
 				// (Finly) The PIN may have been set on another device, and a hidden profile never shows in the public
 				// user list that refreshes this flag otherwise. When the server doesn't say, go by what it said last.
-				val hasPin = response.hasPin()
-				if (hasPin != null) authenticationStore.rememberServerPin(session.serverId, session.userId, hasPin)
-				val needsPin = hasPin ?: (authenticationStore.getUser(session.serverId, session.userId)?.serverPin == true)
+				// PinProtected, not HasPin: that one is also false when the PIN can't be entered from here
+				val pinProtected = response.pinProtected()
+				if (pinProtected != null) authenticationStore.rememberServerPin(session.serverId, session.userId, pinProtected)
+				val needsPin = pinProtected ?: (authenticationStore.getUser(session.serverId, session.userId)?.serverPin == true)
 				if (needsPin && !unlocked) {
 					Timber.i("Not opening PIN protected profile of user ${session.userId} without its PIN")
 					clearCurrentSession()

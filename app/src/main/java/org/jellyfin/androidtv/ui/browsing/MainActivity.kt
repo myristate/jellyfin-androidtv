@@ -22,6 +22,7 @@ import org.jellyfin.androidtv.auth.repository.SessionRepository
 import org.jellyfin.androidtv.auth.repository.UserRepository
 import org.jellyfin.androidtv.integration.LeanbackChannelWorker
 import org.jellyfin.androidtv.ui.playback.MediaManager
+import org.jellyfin.androidtv.ui.playback.PlaybackControllerContainer
 import org.jellyfin.androidtv.ui.InteractionTrackerViewModel
 import org.jellyfin.androidtv.ui.background.AppBackground
 import org.jellyfin.androidtv.ui.base.JellyfinTheme
@@ -43,12 +44,15 @@ class MainActivity : FragmentActivity() {
 	private val interactionTrackerViewModel by viewModel<InteractionTrackerViewModel>()
 	private val workManager by inject<WorkManager>()
 	private val mediaManager by inject<MediaManager>()
+	private val playbackControllerContainer by inject<PlaybackControllerContainer>()
 
 	override fun onCreate(savedInstanceState: Bundle?) {
 		applyTheme()
 
 		super.onCreate(savedInstanceState)
 
+		// Lock before the home screen starts loading, not only once it shows (onResume)
+		lockIfNeeded()
 		if (!validateAuthentication()) return
 
 		interactionTrackerViewModel.keepScreenOn.flowWithLifecycle(lifecycle, Lifecycle.State.RESUMED)
@@ -62,7 +66,8 @@ class MainActivity : FragmentActivity() {
 		interactionTrackerViewModel.visible
 			.drop(1)
 			.onEach { visible ->
-				if (visible) sessionRepository.onBackgrounded()
+				// The screensaver also runs while music plays, that isn't the TV being left
+				if (visible && !mediaManager.isPlayingAudio) sessionRepository.onBackgrounded()
 				// Leaving the app also hides the screensaver, onResume() checks when coming back
 				else if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) && lockIfNeeded()) validateAuthentication()
 			}.launchIn(lifecycleScope)
@@ -108,9 +113,12 @@ class MainActivity : FragmentActivity() {
 	 * does and taking its films and shows off the home screen.
 	 */
 	private fun lockIfNeeded(): Boolean {
-		if (!sessionRepository.lockIfNeeded()) return false
-
-		mediaManager.clearAudioQueue()
+		// Stop playback while the server can still be told, so it closes the stream and frees a Live TV tuner
+		val locked = sessionRepository.lockIfNeeded(beforeLock = {
+			playbackControllerContainer.playbackController?.endPlayback(true)
+			mediaManager.clearAudioQueue()
+		})
+		if (!locked) return false
 		LeanbackChannelWorker.clear(workManager)
 		return true
 	}

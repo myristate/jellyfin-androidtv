@@ -341,8 +341,9 @@ public class LiveTvGuideFragment extends Fragment implements LiveTvGuide, View.O
         if (mDetailPopup != null) {
             mDetailPopup.dismiss();
         }
-        // Closing the preview's stream here still lets full screen playback share it, the server keeps it briefly
-        if (livePreview != null) livePreview.stop();
+        // Closing the preview's stream here still lets full screen playback share it, the server keeps it briefly. The
+        // preview's player is released too, so its video decoder is gone before full screen playback opens one.
+        if (livePreview != null) livePreview.pause();
         mHandler.removeCallbacks(refreshWhenStale);
         mHandler.removeCallbacks(updateNowMarks);
     }

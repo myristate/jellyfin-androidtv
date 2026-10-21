@@ -37,6 +37,8 @@ import org.jellyfin.androidtv.ui.settings.screen.livetv.SettingsLiveTvGuideFilte
 import org.jellyfin.androidtv.ui.settings.screen.livetv.SettingsLiveTvGuideOptionsScreen
 import org.jellyfin.androidtv.ui.settings.screen.playback.SettingsPlaybackAVCLevelScreen
 import org.jellyfin.androidtv.ui.settings.screen.profile.SettingsProfilePictureScreen
+import org.jellyfin.androidtv.ui.settings.screen.profile.SettingsFamilyProfileScreen
+import org.jellyfin.androidtv.ui.settings.screen.profile.SettingsFamilyScreen
 import org.jellyfin.androidtv.ui.settings.screen.profile.SettingsProfileScreen
 import org.jellyfin.androidtv.ui.settings.screen.playback.SettingsPlaybackAdvancedScreen
 import org.jellyfin.androidtv.ui.settings.screen.playback.SettingsPlaybackAudioBehaviorScreen
@@ -76,6 +78,10 @@ object Routes {
 	const val AUTHENTICATION_PIN = "/authentication/pin"
 	const val PROFILE = "/profile"
 	const val PROFILE_PICTURE = "/profile/picture"
+	const val PROFILE_FAMILY = "/profile/family"
+	const val PROFILE_FAMILY_USER = "/profile/family/{userId}"
+	const val PROFILE_FAMILY_USER_PIN = "/profile/family/{userId}/pin"
+	const val PROFILE_FAMILY_USER_PICTURE = "/profile/family/{userId}/picture"
 	const val CUSTOMIZATION = "/customization"
 	const val CUSTOMIZATION_THEME = "/customization/theme"
 	const val CUSTOMIZATION_CLOCK = "/customization/clock"
@@ -163,6 +169,18 @@ val routes = mapOf<String, RouteComposable>(
 	},
 	Routes.PROFILE_PICTURE to {
 		SettingsProfilePictureScreen()
+	},
+	Routes.PROFILE_FAMILY to {
+		SettingsFamilyScreen()
+	},
+	Routes.PROFILE_FAMILY_USER to { context ->
+		SettingsFamilyProfileScreen(userId = context.parameters["userId"]?.toUUIDOrNull()!!)
+	},
+	Routes.PROFILE_FAMILY_USER_PIN to { context ->
+		SettingsAuthenticationPinScreen(userId = context.parameters["userId"]?.toUUIDOrNull()!!)
+	},
+	Routes.PROFILE_FAMILY_USER_PICTURE to { context ->
+		SettingsProfilePictureScreen(userId = context.parameters["userId"]?.toUUIDOrNull()!!)
 	},
 	Routes.CUSTOMIZATION to {
 		SettingsCustomizationScreen()

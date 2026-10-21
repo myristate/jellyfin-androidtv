@@ -142,7 +142,15 @@ fun PlaybackController.setSubtitleIndex(index: Int, force: Boolean = false) {
 					// The server does not send a reliable index in all cases, so calculate it manually
 					val localIndex = mediaSource.mediaStreams.orEmpty()
 						.filter { it.type == MediaStreamType.SUBTITLE }
-						.filter { it.deliveryMethod == SubtitleDeliveryMethod.EMBED || it.deliveryMethod == SubtitleDeliveryMethod.HLS }
+						.filter {
+							if (stream.deliveryMethod == SubtitleDeliveryMethod.EMBED) {
+								// ExoPlayer exposes every subtitle track of the container, including the ones the server
+								// would burn in (ASS/SSA without libass), so they must be counted to match its track groups
+								!it.isExternal
+							} else {
+								it.deliveryMethod == SubtitleDeliveryMethod.EMBED || it.deliveryMethod == SubtitleDeliveryMethod.HLS
+							}
+						}
 						.indexOf(stream)
 						.takeIf { it != -1 }
 
@@ -181,8 +189,13 @@ fun PlaybackController.setSubtitleIndex(index: Int, force: Boolean = false) {
 	}
 }
 
+/**
+ * Load the item's media segments and add their skip actions to the player, then call [callback]. The segments arrive
+ * later: when [isCurrent] says playback moved on or stopped meanwhile, nothing is added and [callback] isn't called.
+ */
 fun PlaybackController.applyMediaSegments(
 	item: BaseItemDto,
+	isCurrent: () -> Boolean,
 	callback: () -> Unit,
 ) {
 	val mediaSegmentRepository by fragment.inject<MediaSegmentRepository>()
@@ -192,6 +205,8 @@ fun PlaybackController.applyMediaSegments(
 		val mediaSegments = runCatching {
 			mediaSegmentRepository.getSegmentsForItem(item)
 		}.getOrNull().orEmpty()
+
+		if (!isCurrent()) return@launch
 
 		for (mediaSegment in mediaSegments) {
 			val action = mediaSegmentRepository.getMediaSegmentAction(mediaSegment)
@@ -234,4 +249,35 @@ private fun PlaybackController.addAskToSkipAction(mediaSegment: MediaSegmentDto)
 		.setPosition(mediaSegment.start.inWholeMilliseconds.coerceAtLeast(1))
 		.setDeleteAfterDelivery(false)
 		.send()
+}
+
+/**
+ * How the current item is being played, for diagnostics reports and the log (Finly): the play method and why the
+ * server transcodes, the streams, where playback is and how much is buffered. Never the access token.
+ */
+fun PlaybackController.describePlayback(): List<String> {
+	val item = currentlyPlayingItem
+	val streamInfo = currentStreamInfo
+	val source = streamInfo?.mediaSource
+	val streams = source?.mediaStreams.orEmpty()
+	val video = streams.firstOrNull { it.type == MediaStreamType.VIDEO }
+	val audio = streams.firstOrNull { it.type == MediaStreamType.AUDIO && it.index == source?.defaultAudioStreamIndex }
+		?: streams.firstOrNull { it.type == MediaStreamType.AUDIO }
+	// The server lists its reasons in the stream URL
+	val transcodeReasons = streamInfo?.mediaUrl
+		?.substringAfter("TranscodeReasons=", "")
+		?.substringBefore('&')
+		?.replace("%2C", ",")
+		?.ifEmpty { null }
+
+	return listOf(
+		"Item: ${item?.name} (${item?.type}, ${item?.id})",
+		"Play method: ${streamInfo?.playMethod}, container ${streamInfo?.container}" +
+			(transcodeReasons?.let { ", transcode reasons $it" } ?: "") +
+			", source bitrate ${source?.bitrate?.let { "${it / 1_000_000} Mbps" } ?: "?"}",
+		"Video: ${video?.codec} ${video?.width}x${video?.height} ${video?.videoRangeType} ${video?.bitRate?.let { "${it / 1_000_000} Mbps" } ?: ""}",
+		"Audio: ${audio?.codec} ${audio?.channels} channels ${audio?.language.orEmpty()} (index ${audio?.index}, ${streams.count { it.type == MediaStreamType.AUDIO }} tracks)",
+		"Subtitles: ${streamInfo?.subtitleDeliveryMethod}",
+		"Position ${currentPosition} ms of ${duration} ms, buffered to ${bufferedPosition} ms, live TV $isLiveTv",
+	)
 }

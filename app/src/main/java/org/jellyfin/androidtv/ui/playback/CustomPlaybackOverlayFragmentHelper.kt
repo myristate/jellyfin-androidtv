@@ -4,6 +4,7 @@ import android.view.View
 import android.widget.Toast
 import androidx.core.view.isVisible
 import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -64,6 +65,9 @@ fun CustomPlaybackOverlayFragment.refreshSelectedProgram() {
 // The channel most recently asked for, so a slow lookup for an earlier channel doesn't start it after a quick change
 private var requestedChannelId: UUID? = null
 
+/** Whether a channel lookup started by [playChannel] hasn't finished yet. */
+fun isChannelRequestPending() = requestedChannelId != null
+
 fun CustomPlaybackOverlayFragment.playChannel(id: UUID) {
 	val api by inject<ApiClient>()
 	val playbackControllerContainer by inject<PlaybackControllerContainer>()
@@ -77,6 +81,7 @@ fun CustomPlaybackOverlayFragment.playChannel(id: UUID) {
 		}.fold(
 			onSuccess = { channel ->
 				if (requestedChannelId != id) return@fold
+				requestedChannelId = null
 				playbackControllerContainer.playbackController?.apply {
 					// Reset whatever state the last channel left behind, play() ignores requests while buffering
 					stop()
@@ -84,7 +89,15 @@ fun CustomPlaybackOverlayFragment.playChannel(id: UUID) {
 					play(0)
 				}
 			},
-			onFailure = {
+			onFailure = { error ->
+				// The player was left during the lookup
+				if (error is CancellationException) {
+					if (requestedChannelId == id) requestedChannelId = null
+					throw error
+				}
+				// A lookup for a channel the user has already moved past
+				if (requestedChannelId != id) return@fold
+				requestedChannelId = null
 				Toast.makeText(
 					requireContext(),
 					getString(R.string.msg_video_playback_error),

@@ -33,6 +33,7 @@ import org.jellyfin.androidtv.auth.model.ApiClientErrorLoginState
 import org.jellyfin.androidtv.auth.model.AuthenticatedState
 import org.jellyfin.androidtv.auth.model.AuthenticatingState
 import org.jellyfin.androidtv.auth.model.InvalidPinState
+import org.jellyfin.androidtv.auth.model.RefusedLoginState
 import org.jellyfin.androidtv.auth.model.RequirePinState
 import org.jellyfin.androidtv.auth.model.RequireSignInState
 import org.jellyfin.androidtv.auth.model.Server
@@ -46,10 +47,10 @@ import org.jellyfin.androidtv.ui.base.Text
 import org.jellyfin.androidtv.ui.base.button.Button
 import org.jellyfin.androidtv.ui.composable.PinPad
 import org.jellyfin.androidtv.ui.startup.StartupViewModel
+import org.jellyfin.androidtv.util.apiclient.ServerRefusal
+import org.jellyfin.androidtv.util.apiclient.refusalMessage
 import org.jellyfin.androidtv.util.createBundle
-import org.jellyfin.sdk.api.client.exception.InvalidStatusException
 import org.jellyfin.sdk.model.serializer.toUUIDOrNull
-import java.net.HttpURLConnection
 import org.koin.androidx.viewmodel.ext.android.activityViewModel
 import kotlin.time.Duration.Companion.seconds
 
@@ -161,10 +162,13 @@ class UserPinFragment : Fragment() {
 				// The activity opens the next screen when the session changes
 				AuthenticatedState -> Unit
 
-				InvalidPinState -> {
-					val lockout = startupViewModel.pinLockoutSeconds(server, user.id)
-					if (lockout > 0) startLockout(lockout)
-					else pinState = PinEntryState(message = getString(R.string.pin_wrong))
+				InvalidPinState -> pinState = PinEntryState(message = getString(R.string.refusal_wrong_pin))
+
+				// The server said why (Finly): count down when it said how long to wait
+				is RefusedLoginState -> {
+					val wait = state.refusal?.retryAfterSeconds
+					if (state.refusal?.reason == ServerRefusal.PIN_LOCKED_OUT && wait != null && wait > 0) startLockout(wait)
+					else pinState = PinEntryState(message = requireContext().refusalMessage(state.refusal, state.status))
 				}
 
 				// The stored access token no longer works, the user needs to sign in again
@@ -179,16 +183,7 @@ class UserPinFragment : Fragment() {
 					}
 				}
 
-				ServerUnavailableState -> pinState = PinEntryState(message = getString(R.string.server_connection_failed))
-
-				is ApiClientErrorLoginState -> {
-					// The server refused to sign the profile in at all, for example outside its allowed hours (Finly)
-					val refused = (state.error as? InvalidStatusException)?.status == HttpURLConnection.HTTP_FORBIDDEN
-					pinState = PinEntryState(
-						message = if (refused) getString(R.string.pin_sign_in_refused, user.name)
-						else getString(R.string.server_connection_failed)
-					)
-				}
+				ServerUnavailableState, is ApiClientErrorLoginState -> pinState = PinEntryState(message = getString(R.string.refusal_unreachable))
 
 				is ServerVersionNotSupported -> pinState = PinEntryState(
 					message = getString(

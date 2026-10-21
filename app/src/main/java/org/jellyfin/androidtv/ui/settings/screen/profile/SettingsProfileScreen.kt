@@ -122,6 +122,17 @@ fun SettingsProfileScreen() {
 			}
 		}
 
+		// (Finly) A parent can change anyone's PIN or profile picture
+		if (user.policy?.isAdministrator == true) item {
+			ListButton(
+				leadingContent = { Icon(painterResource(R.drawable.ic_users), contentDescription = null) },
+				headingContent = { Text(stringResource(R.string.family_profiles)) },
+				captionContent = { Text(stringResource(R.string.family_profiles_description)) },
+				onClick = { router.push(Routes.PROFILE_FAMILY) },
+				modifier = Modifier.focusKey(Routes.PROFILE_FAMILY),
+			)
+		}
+
 		item {
 			ListButton(
 				leadingContent = { Icon(painterResource(R.drawable.ic_switch_users), contentDescription = null) },

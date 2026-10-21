@@ -15,7 +15,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -30,15 +29,16 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.jellyfin.androidtv.R
-import org.jellyfin.androidtv.auth.repository.PIN_LENGTH
 import org.jellyfin.androidtv.auth.repository.AuthenticationRepository
+import org.jellyfin.androidtv.auth.repository.PIN_LENGTH
 import org.jellyfin.androidtv.auth.repository.PinChangeResult
 import org.jellyfin.androidtv.auth.repository.SessionRepository
 import org.jellyfin.androidtv.auth.repository.SignInOptions
 import org.jellyfin.androidtv.auth.repository.UserRepository
+import org.jellyfin.androidtv.auth.repository.isPinFormat
+import org.jellyfin.androidtv.data.repository.UserProfileRepository
 import org.jellyfin.androidtv.ui.base.Icon
 import org.jellyfin.androidtv.ui.base.JellyfinTheme
 import org.jellyfin.androidtv.ui.base.LocalTextStyle
@@ -50,88 +50,90 @@ import org.jellyfin.androidtv.ui.base.list.ListSection
 import org.jellyfin.androidtv.ui.composable.PinPad
 import org.jellyfin.androidtv.ui.navigation.focus.focusKey
 import org.jellyfin.androidtv.ui.settings.composable.SettingsColumn
+import org.jellyfin.androidtv.util.apiclient.ServerRefusal
+import org.jellyfin.androidtv.util.apiclient.refusalMessage
 import org.koin.compose.koinInject
-import kotlin.time.Duration.Companion.seconds
+import timber.log.Timber
+import java.util.UUID
 
 private sealed interface PinStep {
 	data object Menu : PinStep
 
-	/** Asking for the current PIN or password before changing ([remove] false) or removing the PIN. */
-	data class Current(val remove: Boolean) : PinStep
+	/** Asking for the current PIN before changing ([remove] false) or removing it. */
+	data class CurrentPin(val remove: Boolean) : PinStep
 
-	/** Asking for the new PIN, then again to confirm it. */
-	data class NewPin(val current: String, val first: String?) : PinStep
+	/** Asking for the password: for a first PIN, or in place of the current PIN. */
+	data class CurrentPassword(val remove: Boolean) : PinStep
+
+	/** Asking for the new PIN, then again to confirm it. [current] is null for a parent changing someone else's. */
+	data class NewPin(val current: String?, val first: String?) : PinStep
 
 	data object Saving : PinStep
 }
 
 /**
- * Set, change or remove the PIN of the profile that is currently signed in. The PIN is kept on the server, so it works
- * on every device and app; the server wants the current PIN or password for any change.
+ * Set, change or remove a profile's PIN (finly/SIGN-IN.md): the signed in user's own when [userId] is null, otherwise,
+ * for a parent, someone else's. The PIN is kept on the server, so it works on every device and app. Changing or
+ * removing your own needs your current PIN (or password), a first PIN your password; a parent needs neither for someone
+ * else's, and can turn PIN sign in back on after too many wrong PINs.
  */
 @Composable
-fun SettingsAuthenticationPinScreen() {
+fun SettingsAuthenticationPinScreen(userId: UUID? = null) {
 	val context = LocalContext.current
 	val scope = rememberCoroutineScope()
 	val sessionRepository = koinInject<SessionRepository>()
 	val userRepository = koinInject<UserRepository>()
 	val authenticationRepository = koinInject<AuthenticationRepository>()
+	val userProfileRepository = koinInject<UserProfileRepository>()
 
 	val session by sessionRepository.currentSession.collectAsState()
-	val user by userRepository.currentUser.collectAsState()
+	val currentUser by userRepository.currentUser.collectAsState()
 	val currentSession = session ?: return
+	val targetId = userId ?: currentSession.userId
+	val forSomeoneElse = targetId != currentSession.userId
+
+	var otherName by remember(targetId) { mutableStateOf<String?>(null) }
+	LaunchedEffect(targetId) {
+		if (forSomeoneElse) otherName = runCatching { userProfileRepository.getProfile(targetId).name }
+			.onFailure { Timber.w(it, "Unable to load the profile of user %s", targetId) }
+			.getOrNull()
+	}
+	val userName = if (forSomeoneElse) otherName else currentUser?.name
 
 	// Start from what the server last said and ask it again, the PIN may have changed on another device
-	var options by remember(currentSession) {
-		mutableStateOf(SignInOptions(hasPassword = true, hasPin = authenticationRepository.hasPin(currentSession.serverId, currentSession.userId)))
+	val storedPin = authenticationRepository.hasPin(currentSession.serverId, targetId)
+	var options by remember(targetId) {
+		mutableStateOf(SignInOptions(hasPassword = true, pinProtected = storedPin, pinUsable = storedPin, pinSignInDisabled = false))
 	}
-	LaunchedEffect(currentSession) {
-		authenticationRepository.getSignInOptions()?.let { options = it }
+	suspend fun reloadOptions() {
+		authenticationRepository.getSignInOptions(userId)?.let { options = it }
 	}
+	LaunchedEffect(targetId) { reloadOptions() }
 
 	var step by remember { mutableStateOf<PinStep>(PinStep.Menu) }
 	var message by remember { mutableStateOf<String?>(null) }
-	val wrongCurrentMessage = stringResource(R.string.pin_current_wrong)
+	val askParentMessage = stringResource(R.string.pin_ask_parent)
 
-	// Wrong current PINs are throttled like signing in with a wrong PIN, so the PIN can't be guessed here instead
-	var lockoutSeconds by remember { mutableLongStateOf(0L) }
-	fun refreshLockout() {
-		lockoutSeconds = authenticationRepository.pinLockoutSeconds(currentSession.serverId, currentSession.userId)
-	}
-	LaunchedEffect(lockoutSeconds > 0) {
-		while (lockoutSeconds > 0) {
-			delay(1.seconds)
-			refreshLockout()
-		}
-	}
-
-	fun save(current: String, pin: String?) {
+	fun save(current: String?, pin: String?, retryStep: PinStep) {
 		step = PinStep.Saving
 		scope.launch {
-			when (authenticationRepository.setPin(current, pin)) {
-				PinChangeResult.SAVED -> {
-					options = options.copy(hasPin = pin != null)
+			when (val result = authenticationRepository.setPin(current, pin, userId)) {
+				PinChangeResult.Saved -> {
 					step = PinStep.Menu
 					message = null
 					Toast.makeText(context, if (pin == null) R.string.pin_removed else R.string.pin_saved, Toast.LENGTH_SHORT).show()
+					reloadOptions()
 				}
 
-				PinChangeResult.WRONG_CURRENT -> {
-					step = PinStep.Current(remove = pin == null)
-					message = wrongCurrentMessage
-					refreshLockout()
-				}
+				is PinChangeResult.Refused -> {
+					message = context.refusalMessage(result.refusal, result.status)
+					// A wrong or throttled current PIN or password can be tried again, anything else goes back to the menu
+					step = when (result.refusal?.reason) {
+						ServerRefusal.WRONG_PIN, ServerRefusal.WRONG_PASSWORD,
+						ServerRefusal.TOO_MANY_ATTEMPTS, ServerRefusal.PIN_LOCKED_OUT -> retryStep
 
-				PinChangeResult.LOCKED_OUT -> {
-					step = PinStep.Current(remove = pin == null)
-					message = null
-					refreshLockout()
-				}
-
-				PinChangeResult.FAILED -> {
-					step = PinStep.Menu
-					message = null
-					Toast.makeText(context, R.string.pin_save_failed, Toast.LENGTH_SHORT).show()
+						else -> PinStep.Menu
+					}
 				}
 			}
 		}
@@ -139,32 +141,67 @@ fun SettingsAuthenticationPinScreen() {
 
 	fun start(remove: Boolean) {
 		message = null
-		refreshLockout()
 		step = when {
-			options.hasPin || options.hasPassword -> PinStep.Current(remove)
-			remove -> {
-				save("", null)
+			// A parent changing someone else's
+			forSomeoneElse -> if (remove) {
+				save(null, null, PinStep.Menu)
 				PinStep.Saving
+			} else PinStep.NewPin(current = null, first = null)
+
+			// Changing or removing your own: the current PIN, or the password when the PIN can't be used from here
+			options.pinProtected && options.pinUsable -> PinStep.CurrentPin(remove)
+			options.pinProtected && options.hasPassword -> PinStep.CurrentPassword(remove)
+			options.pinProtected -> {
+				message = askParentMessage
+				PinStep.Menu
 			}
 
+			// A first PIN needs the password, a profile without one just sets it
+			options.hasPassword -> PinStep.CurrentPassword(remove)
 			else -> PinStep.NewPin(current = "", first = null)
 		}
 	}
 
-	fun onCurrentEntered(remove: Boolean, current: String) {
+	fun onCurrentEntered(current: String, entryStep: PinStep, remove: Boolean) {
 		message = null
-		if (remove) save(current, null) else step = PinStep.NewPin(current, first = null)
+		if (remove) save(current, null, entryStep) else step = PinStep.NewPin(current, first = null)
+	}
+
+	fun unlock() {
+		step = PinStep.Saving
+		scope.launch {
+			when (val result = authenticationRepository.unlockPin(targetId)) {
+				PinChangeResult.Saved -> {
+					message = null
+					Toast.makeText(context, R.string.pin_unlocked, Toast.LENGTH_SHORT).show()
+					reloadOptions()
+				}
+
+				is PinChangeResult.Refused -> message = context.refusalMessage(result.refusal, result.status)
+			}
+			step = PinStep.Menu
+		}
 	}
 
 	SettingsColumn {
 		item {
 			ListSection(
-				overlineContent = { Text(user?.name?.uppercase().orEmpty()) },
+				overlineContent = { Text(userName?.uppercase().orEmpty()) },
 				headingContent = { Text(stringResource(R.string.pin_profile)) },
 				captionContent = {
-					Text(stringResource(R.string.pin_profile_description, SessionRepository.PIN_LOCK_TIMEOUT.toMinutes().toInt()))
+					val description = if (forSomeoneElse) R.string.pin_profile_description_other else R.string.pin_profile_description
+					Text(stringResource(description, SessionRepository.PIN_LOCK_TIMEOUT.toMinutes().toInt()))
 				},
 			)
+		}
+
+		if (options.pinSignInDisabled) item {
+			Text(stringResource(R.string.pin_unlock_description), modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+		}
+
+		val menuMessage = message
+		if (menuMessage != null && step == PinStep.Menu) item {
+			Text(menuMessage, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
 		}
 
 		when (val current = step) {
@@ -172,14 +209,14 @@ fun SettingsAuthenticationPinScreen() {
 				item {
 					ListButton(
 						leadingContent = { Icon(painterResource(R.drawable.ic_user), contentDescription = null) },
-						headingContent = { Text(stringResource(if (options.hasPin) R.string.pin_change else R.string.pin_set)) },
+						headingContent = { Text(stringResource(if (options.pinProtected) R.string.pin_change else R.string.pin_set)) },
 						enabled = current == PinStep.Menu,
 						onClick = { start(remove = false) },
 						modifier = Modifier.focusKey("set_pin"),
 					)
 				}
 
-				if (options.hasPin) item {
+				if (options.pinProtected) item {
 					ListButton(
 						leadingContent = { Icon(painterResource(R.drawable.ic_delete), contentDescription = null) },
 						headingContent = { Text(stringResource(R.string.pin_remove)) },
@@ -188,38 +225,62 @@ fun SettingsAuthenticationPinScreen() {
 						modifier = Modifier.focusKey("remove_pin"),
 					)
 				}
+
+				// Only a parent can turn PIN sign in back on
+				if (options.pinSignInDisabled && forSomeoneElse) item {
+					ListButton(
+						leadingContent = { Icon(painterResource(R.drawable.ic_check), contentDescription = null) },
+						headingContent = { Text(stringResource(R.string.pin_unlock)) },
+						enabled = current == PinStep.Menu,
+						onClick = { unlock() },
+						modifier = Modifier.focusKey("unlock_pin"),
+					)
+				}
 			}
 
-			is PinStep.Current -> item {
-				if (options.hasPin) {
-					val lockoutMessage = when {
-						lockoutSeconds > 60 -> stringResource(R.string.pin_locked_out_minutes, ((lockoutSeconds + 59) / 60).toInt())
-						lockoutSeconds > 0 -> stringResource(R.string.pin_locked_out, lockoutSeconds.toInt())
-						else -> null
-					}
-
+			is PinStep.CurrentPin -> {
+				item {
 					PinPad(
 						title = stringResource(R.string.pin_current),
-						message = lockoutMessage ?: message,
-						enabled = lockoutSeconds == 0L,
+						message = message,
 						modifier = Modifier
 							.fillMaxWidth()
 							.padding(vertical = 8.dp),
-						onPinEntered = { pin -> onCurrentEntered(current.remove, pin) },
-					)
-				} else {
-					PasswordEntry(
-						title = stringResource(R.string.pin_current_password),
-						message = message,
-						onDone = { password -> onCurrentEntered(current.remove, password) },
+						onPinEntered = { pin -> onCurrentEntered(pin, current, current.remove) },
 					)
 				}
+
+				if (options.hasPassword) item {
+					ListButton(
+						headingContent = { Text(stringResource(R.string.pin_use_password)) },
+						onClick = {
+							message = null
+							step = PinStep.CurrentPassword(current.remove)
+						},
+						modifier = Modifier.focusKey("use_password"),
+					)
+				}
+			}
+
+			is PinStep.CurrentPassword -> item {
+				PasswordEntry(
+					title = stringResource(if (options.pinProtected) R.string.pin_current_password_change else R.string.pin_current_password),
+					message = message,
+					onDone = { password -> onCurrentEntered(password, current, current.remove) },
+				)
 			}
 
 			is PinStep.NewPin -> item {
 				val newPinTitle = stringResource(R.string.pin_new, PIN_LENGTH)
 				val confirmTitle = stringResource(R.string.pin_confirm)
 				val mismatchMessage = stringResource(R.string.pin_mismatch)
+				// Where a refused current PIN or password is asked again
+				val given = current.current
+				val retryStep = when {
+					given == null -> PinStep.Menu
+					options.pinProtected && options.pinUsable && isPinFormat(given) -> PinStep.CurrentPin(remove = false)
+					else -> PinStep.CurrentPassword(remove = false)
+				}
 
 				PinPad(
 					title = if (current.first == null) newPinTitle else confirmTitle,
@@ -234,7 +295,7 @@ fun SettingsAuthenticationPinScreen() {
 								message = null
 							}
 
-							pin -> save(current.current, pin)
+							pin -> save(current.current, pin, retryStep)
 
 							else -> {
 								step = current.copy(first = null)
@@ -249,7 +310,7 @@ fun SettingsAuthenticationPinScreen() {
 }
 
 /**
- * Asks for the user's password, for setting a first PIN on a profile that has a password.
+ * Asks for the user's password: for a first PIN, or in place of the current PIN.
  */
 @Composable
 private fun PasswordEntry(

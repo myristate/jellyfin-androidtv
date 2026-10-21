@@ -24,30 +24,37 @@
         app:layout_constraintTop_toTopOf="parent"
         tools:visibility="visible" />
 
+    <!-- The title, profiles and disclaimer sit together in the middle of the screen, the profiles centred in their row -->
     <TextView
         android:id="@+id/title"
         style="@style/Widget.Jellyfin.Row.Header"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
+        android:layout_marginBottom="32dp"
         android:gravity="center"
         android:text="@string/who_is_watching"
+        android:textAlignment="center"
+        android:textSize="32sp"
+        app:layout_constraintBottom_toTopOf="@+id/users"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/notification"
-        app:layout_goneMarginTop="0dp" />
+        app:layout_constraintVertical_bias="0.4"
+        app:layout_constraintVertical_chainStyle="packed" />
 
     <androidx.leanback.widget.HorizontalGridView
         android:id="@+id/users"
         android:layout_width="match_parent"
-        android:layout_height="153dp"
+        android:layout_height="200dp"
         android:clipChildren="false"
         android:clipToPadding="false"
+        android:horizontalSpacing="40dp"
         android:scrollbars="none"
+        app:layout_constraintBottom_toTopOf="@+id/login_disclaimer"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@+id/title"
-        app:rowHeight="153dp"
+        app:rowHeight="200dp"
         tools:itemCount="4"
         tools:listitem="@layout/view_card_default" />
 
@@ -73,6 +80,7 @@
         android:maxLines="3"
         android:padding="8dp"
         app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@+id/users"
         app:layout_constraintWidth_max="500dp"

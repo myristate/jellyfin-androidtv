@@ -2,6 +2,7 @@ package org.jellyfin.androidtv.util.apiclient
 
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
@@ -48,7 +49,8 @@ class ReportingHelper(
 			mediaSourceId = streamInfo.mediaSourceId,
 		)
 
-		lifecycleOwner.lifecycleScope.launch(Dispatchers.IO + NonCancellable) {
+		// Started right away like reportStopped, so a quick stop can't reach the server before its start
+		lifecycleOwner.lifecycleScope.launch(Dispatchers.IO + NonCancellable, start = CoroutineStart.UNDISPATCHED) {
 			Timber.i("Reporting ${item.name} playback started at $position")
 			runCatching {
 				api.playStateApi.reportPlaybackStart(info)
@@ -98,7 +100,9 @@ class ReportingHelper(
 			failed = false,
 		)
 
-		lifecycleOwner.lifecycleScope.launch(Dispatchers.IO + NonCancellable) {
+		// Started right away: the request takes the server address and access token as it starts, before a profile
+		// locking or switching straight after stopping clears them (the stop also releases a Live TV tuner)
+		lifecycleOwner.lifecycleScope.launch(Dispatchers.IO + NonCancellable, start = CoroutineStart.UNDISPATCHED) {
 			Timber.i("Reporting ${item.name} playback stopped at $position")
 			runCatching {
 				api.playStateApi.reportPlaybackStopped(info)

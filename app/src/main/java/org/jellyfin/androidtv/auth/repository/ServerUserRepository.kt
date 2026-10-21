@@ -67,16 +67,23 @@ class ServerUserRepositoryImpl(
 			val response = withContext(Dispatchers.IO) {
 				api.request(HttpMethod.GET, "/Users/Public")
 			}
-			val pinUsers = response.pinUserIds()
+			val pinUsers = response.pinUserIds("HasPin")
+			val protectedUsers = response.pinUserIds("PinProtected")
+			val protectionKnown = response.pinUserIds("PinProtected", known = true)
 			val users = response.createContent<List<UserDto>>()
 				.mapNotNull { dto -> dto.toPublicUser()?.copy(hasPin = dto.id in pinUsers) }
 
-			// Remember which stored users have a PIN, for when they are picked without the server's list at hand
+			// Remember which stored users are protected by a PIN, for when they are picked without the server's list at
+			// hand. Only the server's PinProtected flag clears it: HasPin is also false when the PIN can't be entered from
+			// here, and a profile with a stored access token would then open without its PIN.
 			users.forEach { user ->
-				val stored = authenticationStore.getUser(server.id, user.id)
-				if (stored != null && stored.serverPin != user.hasPin) {
-					authenticationStore.putUser(server.id, user.id, stored.copy(serverPin = user.hasPin))
+				val stored = authenticationStore.getUser(server.id, user.id) ?: return@forEach
+				val protected = when {
+					user.id in protectionKnown -> user.id in protectedUsers
+					user.hasPin -> true
+					else -> return@forEach
 				}
+				if (stored.serverPin != protected) authenticationStore.putUser(server.id, user.id, stored.copy(serverPin = protected))
 			}
 
 			users
@@ -88,10 +95,14 @@ class ServerUserRepositoryImpl(
 	}
 
 	// Finly's server says which users sign in with a PIN on this network, a field the SDK doesn't know
-	private fun RawResponse.pinUserIds(): Set<UUID> = runCatching {
+	/**
+	 * The users whose [flag] is true, or with [known] whose [flag] is there at all.
+	 */
+	private fun RawResponse.pinUserIds(flag: String, known: Boolean = false): Set<UUID> = runCatching {
 		Json.parseToJsonElement(body.decodeToString()).jsonArray.mapNotNull { element ->
 			val user = element.jsonObject
-			if (user["HasPin"]?.jsonPrimitive?.booleanOrNull != true) null
+			val value = user[flag]?.jsonPrimitive?.booleanOrNull
+			if (if (known) value == null else value != true) null
 			else user["Id"]?.jsonPrimitive?.contentOrNull?.toUUIDOrNull()
 		}.toSet()
 	}.getOrDefault(emptySet())

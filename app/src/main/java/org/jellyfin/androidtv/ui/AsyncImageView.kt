@@ -85,6 +85,12 @@ class AsyncImageView @JvmOverloads constructor(
 				if (blurHashBitmap != null) placeholderOrBlurHash = blurHashBitmap.toDrawable(resources)
 			}
 
+			// Nothing to show, clear the image instead of asking for no data (logged as an error each time)
+			if (url == null && placeholder == null) {
+				withContext(Dispatchers.Main) { setImageDrawable(null) }
+				return@launch
+			}
+
 			// Start loading image or placeholder
 			val request = if (url == null) {
 				ImageRequest.Builder(context).apply {

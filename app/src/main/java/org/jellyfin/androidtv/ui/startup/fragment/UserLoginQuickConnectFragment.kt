@@ -19,6 +19,7 @@ import org.jellyfin.androidtv.auth.model.AuthenticatingState
 import org.jellyfin.androidtv.auth.model.ConnectedQuickConnectState
 import org.jellyfin.androidtv.auth.model.PendingQuickConnectState
 import org.jellyfin.androidtv.auth.model.InvalidPinState
+import org.jellyfin.androidtv.auth.model.RefusedLoginState
 import org.jellyfin.androidtv.auth.model.RequirePinState
 import org.jellyfin.androidtv.auth.model.RequireSignInState
 import org.jellyfin.androidtv.auth.model.ServerUnavailableState
@@ -28,6 +29,7 @@ import org.jellyfin.androidtv.auth.model.UnknownQuickConnectState
 import org.jellyfin.androidtv.auth.repository.ServerRepository
 import org.jellyfin.androidtv.databinding.FragmentUserLoginQuickConnectBinding
 import org.jellyfin.androidtv.ui.startup.UserLoginViewModel
+import org.jellyfin.androidtv.util.apiclient.refusalMessage
 import org.koin.androidx.viewmodel.ext.android.activityViewModel
 
 class UserLoginQuickConnectFragment : Fragment() {
@@ -80,8 +82,9 @@ class UserLoginQuickConnectFragment : Fragment() {
 
 						AuthenticatingState -> binding.error.setText(R.string.login_authenticating)
 						RequireSignInState -> binding.error.setText(R.string.login_invalid_credentials)
+						is RefusedLoginState -> binding.error.text = requireContext().refusalMessage(state.refusal, state.status)
 						ServerUnavailableState,
-						is ApiClientErrorLoginState -> binding.error.setText(R.string.login_server_unavailable)
+						is ApiClientErrorLoginState -> binding.error.setText(R.string.refusal_unreachable)
 						// Do nothing because the activity will respond to the new session
 						AuthenticatedState -> Unit
 						// Only used when opening a stored user
