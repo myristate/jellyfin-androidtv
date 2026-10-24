@@ -71,7 +71,7 @@ class BackgroundService(
 
 		// Get all backdrop urls
 		val backdropUrls = (baseItem.itemBackdropImages + baseItem.parentBackdropImages)
-			.map { it.getUrl(api) }
+			.mapNotNull { it.getUrl(api) }
 			.toSet()
 
 		loadBackgrounds(backdropUrls)

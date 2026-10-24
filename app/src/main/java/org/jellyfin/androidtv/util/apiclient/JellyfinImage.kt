@@ -27,8 +27,12 @@ fun JellyfinImage.getUrl(
 	maxHeight: Int? = null,
 	fillWidth: Int? = null,
 	fillHeight: Int? = null,
-): String = when (source) {
-	JellyfinImageSource.USER -> api.imageApi.getUserImageUrl(
+): String? = when {
+	// (Finly) Switching or locking a profile clears the server address while the screen being left still draws its
+	// images: no image then, instead of a crash
+	api.baseUrl == null -> null
+
+	source == JellyfinImageSource.USER -> api.imageApi.getUserImageUrl(
 		userId = item,
 		tag = tag,
 	)
