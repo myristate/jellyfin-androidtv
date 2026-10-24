@@ -6,6 +6,8 @@ import android.os.Bundle
 import android.os.Parcel
 import android.os.Parcelable
 import android.util.AttributeSet
+import android.view.View
+import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.core.os.BundleCompat
 import androidx.core.os.ParcelCompat
@@ -55,6 +57,9 @@ class DestinationFragmentView @JvmOverloads constructor(
 		private const val FRAGMENT_TAG_CONTENT = "content"
 		private const val BUNDLE_SUPER = "super"
 		private const val BUNDLE_HISTORY = "history"
+
+		// A fragment view is normally laid out within a frame, check after that
+		private val LAYOUT_CHECK_DELAYS_MS = listOf(500L, 2_000L)
 	}
 
 	private val fragmentManager by lazy {
@@ -64,8 +69,67 @@ class DestinationFragmentView @JvmOverloads constructor(
 	private val container by lazy {
 		FragmentContainerView(context).also { view ->
 			view.id = R.id.container
+			view.setOnHierarchyChangeListener(object : OnHierarchyChangeListener {
+				override fun onChildViewAdded(parent: View?, child: View?) {
+					scheduleLayoutCheck()
+				}
+
+				override fun onChildViewRemoved(parent: View?, child: View?) = Unit
+			})
 			addView(view)
 		}
+	}
+
+	/**
+	 * (Finly) A fragment added while MainActivity is in the background, such as the home screen opened again after
+	 * picking a profile, can be left without a layout pass inside the Compose AndroidView: its view, or a fragment
+	 * inside it like the home screen's rows, stays 0x0 and the screen is black or empty until the app is restarted.
+	 * Lay everything out again with the size this view has.
+	 */
+	private fun layoutIfUnsized() {
+		if (width == 0 || height == 0) return
+		val unsized = (0 until container.childCount).map(container::getChildAt)
+			.any { child -> child.visibility != GONE && (child.width == 0 || child.height == 0 || hasUnsizedFragment(child)) }
+		if (!unsized) return
+
+		Timber.w("Fragment view was left without a size, laying it out again")
+		forceLayoutAll(this)
+		measure(
+			MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY),
+			MeasureSpec.makeMeasureSpec(height, MeasureSpec.EXACTLY),
+		)
+		layout(left, top, right, bottom)
+		invalidate()
+	}
+
+	// A fragment container, or the view of a fragment inside it (like the home screen's rows), left at 0x0
+	private fun hasUnsizedFragment(view: View): Boolean = when {
+		view.visibility == GONE -> false
+		view is FragmentContainerView && (view.width == 0 || view.height == 0) -> true
+		view is FragmentContainerView && (0 until view.childCount).map(view::getChildAt)
+			.any { child -> child.visibility != GONE && (child.width == 0 || child.height == 0) } -> true
+		view is ViewGroup -> (0 until view.childCount).any { hasUnsizedFragment(view.getChildAt(it)) }
+		else -> false
+	}
+
+	private fun forceLayoutAll(view: View) {
+		view.forceLayout()
+		if (view is ViewGroup) for (i in 0 until view.childCount) forceLayoutAll(view.getChildAt(i))
+	}
+
+	private val layoutCheck = Runnable { layoutIfUnsized() }
+
+	private fun scheduleLayoutCheck() {
+		removeCallbacks(layoutCheck)
+		// Checked again later as well, for fragments inside the new screen that are added after it
+		LAYOUT_CHECK_DELAYS_MS.forEach { delay -> postDelayed(layoutCheck, delay) }
+	}
+
+	override fun onWindowVisibilityChanged(visibility: Int) {
+		super.onWindowVisibilityChanged(visibility)
+
+		// The fragment may have been swapped while the activity was in the background
+		if (visibility == VISIBLE) scheduleLayoutCheck()
 	}
 
 	private val history = Stack<HistoryEntry>()
