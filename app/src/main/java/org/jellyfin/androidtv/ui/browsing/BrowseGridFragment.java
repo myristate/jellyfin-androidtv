@@ -4,6 +4,7 @@ import static org.koin.java.KoinJavaComponent.inject;
 
 import org.koin.java.KoinJavaComponent;
 
+import android.content.Context;
 import android.os.Bundle;
 import android.os.Handler;
 import android.util.DisplayMetrics;
@@ -83,6 +84,7 @@ import timber.log.Timber;
 
 public class BrowseGridFragment extends Fragment implements View.OnKeyListener {
     private final static int CHUNK_SIZE_MINIMUM = 25;
+    private final static int CARD_POOL_SIZE = 200;
 
     private String mainTitle;
     private FragmentActivity mActivity;
@@ -239,6 +241,16 @@ public class BrowseGridFragment extends Fragment implements View.OnKeyListener {
         mGridView.setHorizontalSpacing(mGridItemSpacingHorizontal);
         mGridView.setVerticalSpacing(mGridItemSpacingVertical);
         mGridView.setFocusable(true);
+        // (Finly) Each card is a Compose view that is slow to build. RecyclerView keeps only 5 spare cards per type by
+        // default while a row of a wide grid needs up to 15, so scrolling threw cards away and rebuilt them for every
+        // row: keep enough spares for a screen and a half, holding a key down lays out about a screen ahead
+        mGridView.setRecycledViewPool(new RecyclerView.RecycledViewPool() {
+            @Override
+            public void putRecycledView(RecyclerView.ViewHolder scrap) {
+                setMaxRecycledViews(scrap.getItemViewType(), CARD_POOL_SIZE);
+                super.putRecycledView(scrap);
+            }
+        });
         // More items load when the selection nears the end, scrolling by touch or mouse doesn't select so check the
         // last visible item as well
         mGridView.addOnScrollListener(new RecyclerView.OnScrollListener() {
@@ -935,7 +947,11 @@ public class BrowseGridFragment extends Fragment implements View.OnKeyListener {
                                   RowPresenter.ViewHolder rowViewHolder, Row row) {
 
             if (!(item instanceof BaseRowItem)) return;
-            itemLauncher.getValue().launch((BaseRowItem) item, mAdapter, requireContext());
+            // (Finly) A press during fast scrolling can land after this screen was left, while its grid is still on
+            // screen: ignore it instead of crashing
+            Context context = getContext();
+            if (context == null) return;
+            itemLauncher.getValue().launch((BaseRowItem) item, mAdapter, context);
         }
     }
 

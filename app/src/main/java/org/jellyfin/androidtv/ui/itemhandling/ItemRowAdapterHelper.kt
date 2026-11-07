@@ -49,6 +49,15 @@ fun <T : Any> ItemRowAdapter.setItems(
 ) {
 	Timber.i("Creating items from $itemsLoaded existing and ${items.size} new, adapter size is ${size()}")
 
+	// (Finly) The next page of a library grid only adds items at the end: add them straight away. Diffing the whole
+	// list instead compared every loaded item on the main thread and froze scrolling for most of a second per page
+	if (itemsLoaded > 0 && itemsLoaded == size()) {
+		val mappedItems = items.mapIndexedNotNull { index, item -> transform(item, itemsLoaded + index) }
+		addAll(mappedItems)
+		itemsLoaded += mappedItems.size
+		return
+	}
+
 	val allItems = buildList {
 		// Add current items before loaded items
 		repeat(itemsLoaded) {

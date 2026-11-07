@@ -31,6 +31,13 @@ open class MutableObjectAdapter<T : Any> : ObjectAdapter, Iterable<T> {
 		notifyItemRangeInserted(data.size - 1, 1)
 	}
 
+	fun addAll(elements: Collection<T>) {
+		if (elements.isEmpty()) return
+		val start = data.size
+		data.addAll(elements)
+		notifyItemRangeInserted(start, elements.size)
+	}
+
 	fun add(index: Int, element: T) {
 		data.add(index, element)
 		notifyItemRangeInserted(index, 1)
